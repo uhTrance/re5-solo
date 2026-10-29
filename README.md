@@ -142,7 +142,10 @@ user's crash; the pack itself not inspected). In co-op,
 Chris's knife keeps it loaded. With Chris removed, the game quits with "Failed open file ... wp0100.mod".
 That happens with the vanilla archive too: playing as Sheva, entering 3-2's Josh segment quit that way
 (Windows logs it as an "Application Popup" event in the System log, with no fault or dump). An install made
-before the knife unpack lacks those files: `tools/loose_sheva.py --knife` adds them.
+before the knife unpack lacks those files: `tools/loose_sheva.py --knife` adds them. With the model there, the
+same load then quit on `pawn\pl\pl00\motion\pl00wp01.lmt` (Chris's knife motions, also in `uWp01.arc`): Josh
+plays Chris's `pl00` motions, and only Chris loads the weapon archives' Chris motion files. `--knife` therefore
+also unpacks each `uWpXX.arc`'s own `pl00wpXX.lmt` (31 files). The launcher's Install does not do this yet.
 
 ## Co-op objects
 

@@ -36,12 +36,31 @@ def entries(data):
         yield name, f'{thash:08x}', data[off:off + csize], dsize & 0x1FFFFFFF
 
 
+def sources():
+    """(archive, name prefix) pairs to unpack."""
+    yield ARC, PREFIX
+    if KIND == 'knife':
+        # Josh's segment on 3-2 also asked for Chris's knife motions (pawn\pl\pl00\motion\pl00wp01.lmt, from the
+        # same archive): Josh plays Chris's pl00 motions, and nothing loads Chris's weapon archives without him.
+        # So every weapon archive's own Chris motion file goes loose too (uWp0c.arc -> pl00wp0c.lmt).
+        for arc in sorted(ARC.parent.glob('uWp??.arc')):
+            yield arc, f'pawn\\pl\\pl00\\motion\\pl00wp{arc.stem[3:].lower()}'
+
+
 def install():
-    data = ARC.read_bytes()
+    written = []
+    for arc, prefix in sources():
+        written += unpack(arc.read_bytes(), prefix)
+    with MANIFEST.open('a') as f:
+        f.writelines(p + '\n' for p in written)
+    print(f'wrote {len(written)} files under {GAME}; listed in {MANIFEST}')
+
+
+def unpack(data, prefix):
     written = []
     for name, thash, blob, size in entries(data):
         t = TYPES.get(thash)
-        if not name.startswith(PREFIX):
+        if not name.startswith(prefix):
             continue
         if not t or not t['ext']:
             print(f'skip (unknown type {thash}): {name}')
@@ -55,9 +74,7 @@ def install():
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(raw)
         written.append(str(dest))
-    with MANIFEST.open('a') as f:
-        f.writelines(p + '\n' for p in written)
-    print(f'wrote {len(written)} files under {GAME}; listed in {MANIFEST}')
+    return written
 
 
 def remove():
