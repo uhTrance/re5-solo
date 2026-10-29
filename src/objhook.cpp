@@ -5,7 +5,9 @@
 namespace {
 
 constexpr int kVtableCopy = 0x200;  // dwords copied (well past any hooked class's last slot)
-constexpr int kMaxHooks = 16;
+// Classes hooked so far this run (they are never released). 16 ran out on 3-2 once the 120fps fix took a slot
+// per player class: the next class hooked, a two-player lift, silently stayed vanilla.
+constexpr int kMaxHooks = 64;
 
 using Update = void(__fastcall*)(void* self, void* edx);
 
@@ -68,6 +70,8 @@ bool HookObject(BYTE* object, DWORD classVtable, AfterUpdate after, DWORD update
     if (!h) {
         if (g_count == kMaxHooks) {
             ReleaseSRWLockExclusive(&g_lock);
+            static LONG warned;
+            if (!InterlockedExchange(&warned, 1)) Log("hook table full (%d classes): class %08X not hooked", kMaxHooks, classVtable);
             return false;
         }
         h = &g_hooks[g_count];
