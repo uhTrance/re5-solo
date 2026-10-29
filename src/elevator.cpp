@@ -18,6 +18,9 @@ constexpr DWORD kElevatorDti = 0x11FBBD8;   // uOmElevator
 constexpr DWORD kReadyBits = 0x18DC;
 constexpr DWORD kReadyHandler = 0x184;
 constexpr DWORD kEventTryGo = 0xF1;
+// The unit move (+0x1C, what sUnit calls each frame), not the +0x160 update: 3-2's uOm08b5 lift (unit line 3)
+// never had +0x160 called through its vtable, so a hook there did nothing.
+constexpr DWORD kMoveSlot = 0x1C;
 
 void AfterElevatorUpdate(BYTE* elevator) {
     auto& bits = At<BYTE>(elevator, kReadyBits);
@@ -39,5 +42,5 @@ void ElevatorTick() {
     auto elevator = At<BYTE*>(act, kActObject);
     if (!elevator) return;
     if (!IsA(elevator, kElevatorDti)) return;  // already ours (heap copy) or not an elevator
-    HookObject(elevator, At<DWORD>(elevator, 0), AfterElevatorUpdate);
+    HookObject(elevator, At<DWORD>(elevator, 0), AfterElevatorUpdate, kMoveSlot);
 }
