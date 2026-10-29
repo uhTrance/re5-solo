@@ -3,7 +3,7 @@
 // With a player slot closed, that character's archive is never loaded, but in-engine scenes still create
 // their actor and ask for pawn\pl\pl0N\... files. RE5 falls back to loose files under nativePC_MT, so the
 // launcher unpacks them from the player's own archives (uPl01ShebaNormal.arc for Sheva, uPl00ChrisNormal.arc
-// for Chris when playing as Sheva, plus Chris's knife); no game files ship with the mod. ARC v7: "ARC\0", u16 version, u16 count,
+// for Chris when playing as Sheva, plus Chris's knife and his motions for each weapon); no game files ship with the mod. ARC v7: "ARC\0", u16 version, u16 count,
 // then 0x50-byte entries {char name[64], u32 type hash, u32 packed size, u32 size (low 29 bits), u32 offset};
 // a packed entry is zlib. Every file written (or already there with the same bytes) is listed in
 // re5_solo_loose.txt next to the exe; only listed files are removed on uninstall.
@@ -273,20 +273,21 @@ bool InstallSceneFiles(const std::wstring& game, std::wstring& error) {
     auto unlist = [&](const std::string& rel) {
         std::erase_if(list, [&](const std::string& l) { return same(l, rel); });
     };
-    for (const auto& archive : kArchives) {
-        std::wstring arcPath = root + L"Image\\Archive\\" + archive.file;
+    // An unreadable required archive fails the install; an optional one (a weapon archive) is skipped.
+    auto unpack = [&](const std::wstring& file, const std::string& prefix, bool required) {
+        std::wstring arcPath = root + L"Image\\Archive\\" + file;
         auto data = ReadFileBytes(arcPath);
         if (data.size() < 8 || memcmp(data.data(), "ARC\0", 4) != 0 || *reinterpret_cast<WORD*>(&data[4]) != 7) {
+            if (!required) return true;
             error = L"Could not read " + arcPath + L".";
             return false;
         }
         int count = *reinterpret_cast<WORD*>(&data[6]);
-        size_t prefixLen = strlen(archive.prefix);
         for (int i = 0; i < count; ++i) {
             size_t o = 8 + 0x50 * static_cast<size_t>(i);
             if (o + 0x50 > data.size()) break;
             std::string name(reinterpret_cast<const char*>(&data[o]), strnlen(reinterpret_cast<const char*>(&data[o]), 64));
-            if (name.compare(0, prefixLen, archive.prefix) != 0) continue;
+            if (name.compare(0, prefix.size(), prefix) != 0) continue;
             DWORD hash, packed, size, offset;
             memcpy(&hash, &data[o + 64], 4);
             memcpy(&packed, &data[o + 68], 4);
@@ -302,7 +303,7 @@ bool InstallSceneFiles(const std::wstring& game, std::wstring& error) {
             } else {
                 raw.reserve(size);
                 if (!Inflater(entry, packed, raw, size).Run() || raw.size() != size) {
-                    error = L"Could not unpack " + Wide(name) + L" from " + archive.file + L".";
+                    error = L"Could not unpack " + Wide(name) + L" from " + file + L".";
                     return false;
                 }
             }
@@ -323,6 +324,26 @@ bool InstallSceneFiles(const std::wstring& game, std::wstring& error) {
             }
             if (!listed(rel)) list.push_back(rel);
         }
+        return true;
+    };
+    for (const auto& archive : kArchives)
+        if (!unpack(archive.file, archive.prefix, true)) return false;
+    // Each weapon archive's own Chris motions (uWp0c.arc -> pawn\pl\pl00\motion\pl00wp0c.lmt). Only Chris loads
+    // them, and 3-2's Josh plays Chris's pl00 motions: with Chris removed, entering Josh's segment quit with
+    // "Failed open file ... pl00wp01.lmt".
+    WIN32_FIND_DATAW found;
+    HANDLE find = FindFirstFileW((root + L"Image\\Archive\\uWp??.arc").c_str(), &found);
+    if (find != INVALID_HANDLE_VALUE) {
+        do {
+            std::wstring file = found.cFileName;
+            if (file.size() != 9) continue;  // uWpXX.arc
+            std::string id = {static_cast<char>(towlower(file[3])), static_cast<char>(towlower(file[4]))};
+            if (!unpack(file, "pawn\\pl\\pl00\\motion\\pl00wp" + id, false)) {
+                FindClose(find);
+                return false;
+            }
+        } while (FindNextFileW(find, &found));
+        FindClose(find);
     }
     std::string text;
     for (const auto& l : list) text += l + "\r\n";
