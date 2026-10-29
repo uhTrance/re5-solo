@@ -22,8 +22,9 @@ constexpr Archive kArchives[] = {
     {L"uPl01ShebaNormal.arc", "pawn\\pl\\pl01\\"},
     {L"uPl00ChrisNormal.arc", "pawn\\pl\\pl00\\"},
     // Chris's knife. Some weapon mods give Sheva's knife (uWp0e.arc) Chris's knife model without packing it;
-    // in co-op Chris always has it loaded, but with Chris removed the game asks for it loose and quits.
-    {L"uWp01.arc", "pawn\\wp\\wp01\\"},
+    // in co-op Chris always has it loaded, but with Chris removed the game asks for it loose and quits. 3-2's Josh
+    // (who plays Chris's motions) asked for each of its files in turn (model, motions, effect), so all of it.
+    {L"uWp01.arc", ""},
 };
 
 // Type hash -> extension for every type those entries use (re\arc_types.json).
@@ -31,7 +32,8 @@ struct Type { DWORD hash; const char* ext; };
 constexpr Type kTypes[] = {
     {0x241F5DEB, "tex"}, {0x58A15856, "mod"}, {0x76820D81, "lmt"}, {0x0253F147, "hit"}, {0x4E2FEF36, "mtg"},
     {0x2282360D, "jex"}, {0x5802B3FF, "ahc"}, {0x3E363245, "chn"}, {0x0026E7FF, "ccl"}, {0x0DADAB62, "oba"},
-    {0x1BA81D3C, "nck"},
+    {0x1BA81D3C, "nck"}, {0x1EFB1B67, "adh"}, {0x758B2EB7, "cef"}, {0x6D5AE854, "efl"}, {0x7E33A16C, "spc"},
+    {0x3FF99995, "spc"}, {0x1BCC4966, "srq"}, {0x09CB8ACF, "srq"},
 };
 
 const char* Extension(DWORD hash) {

@@ -23,7 +23,8 @@ HERE = Path(__file__).parent
 MANIFEST = HERE / f'loose_{KIND}_manifest.txt'
 TYPES = json.loads((HERE.parent / 're' / 'arc_types.json').read_text())
 # only that character's (or weapon's) own files
-PREFIX = {'chris': 'pawn\\pl\\pl00\\', 'knife': 'pawn\\wp\\wp01\\', 'sheva': 'pawn\\pl\\pl01\\'}[KIND]
+# (all of the knife's archive: Josh also asked for its effect, effect\adh\wp\wp_knif.adh)
+PREFIX = {'chris': 'pawn\\pl\\pl00\\', 'knife': '', 'sheva': 'pawn\\pl\\pl01\\'}[KIND]
 
 
 def entries(data):

@@ -145,7 +145,9 @@ That happens with the vanilla archive too: playing as Sheva, entering 3-2's Josh
 before the knife unpack lacks those files: `tools/loose_sheva.py --knife` adds them. With the model there, the
 same load then quit on `pawn\pl\pl00\motion\pl00wp01.lmt` (Chris's knife motions, also in `uWp01.arc`): Josh
 plays Chris's `pl00` motions, and only Chris loads the weapon archives' Chris motion files. `--knife` therefore
-also unpacks each `uWpXX.arc`'s own `pl00wpXX.lmt` (31 files); the launcher's Install does the same.
+also unpacks each `uWpXX.arc`'s own `pl00wpXX.lmt` (31 files); the launcher's Install does the same. Next it
+quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` is unpacked now (its sound and
+`.efl` files ship loose already).
 
 ## Co-op objects
 
