@@ -5,21 +5,25 @@ uBioActorPlayer for her that asks for pawn\\pl\\pl01\\model\\pl0100.mod. RE5 fal
 under nativePC_MT, so providing them lets those scenes play with her in them.
 
 Playing as Sheva (re5_solo_sheva.txt) it is Chris whose slot is closed: --chris does the same for his
-pawn\\pl\\pl00\\ files (uPl00ChrisNormal.arc, with its own manifest).
+pawn\\pl\\pl00\\ files (uPl00ChrisNormal.arc, with its own manifest). --knife unpacks Chris's knife
+(pawn\\wp\\wp01\\ from uWp01.arc): weapon packs that replace that archive ask for wp0100.mod without packing it,
+and with Chris removed the game quits with "Failed open file ... wp0100.mod" (seen on 3-2's Josh segment).
 
-usage: python loose_sheva.py [--chris]            install (writes loose_*_manifest.txt next to this script)
-       python loose_sheva.py [--chris] --remove   delete every file the manifest lists
+usage: python loose_sheva.py [--chris|--knife]            install (writes loose_*_manifest.txt next to this script)
+       python loose_sheva.py [--chris|--knife] --remove   delete every file the manifest lists
 """
 import json, struct, sys, zlib
 from pathlib import Path
 
 GAME = Path(r'D:\Gaming\Launchers\Steam\steamapps\common\Resident Evil 5\nativePC_MT')
-CHRIS = '--chris' in sys.argv
-ARC = GAME / 'Image' / 'Archive' / ('uPl00ChrisNormal.arc' if CHRIS else 'uPl01ShebaNormal.arc')
+KIND = 'knife' if '--knife' in sys.argv else 'chris' if '--chris' in sys.argv else 'sheva'
+ARC = GAME / 'Image' / 'Archive' / {'chris': 'uPl00ChrisNormal.arc', 'knife': 'uWp01.arc',
+                                    'sheva': 'uPl01ShebaNormal.arc'}[KIND]
 HERE = Path(__file__).parent
-MANIFEST = HERE / ('loose_chris_manifest.txt' if CHRIS else 'loose_sheva_manifest.txt')
+MANIFEST = HERE / f'loose_{KIND}_manifest.txt'
 TYPES = json.loads((HERE.parent / 're' / 'arc_types.json').read_text())
-PREFIX = 'pawn\\pl\\pl00\\' if CHRIS else 'pawn\\pl\\pl01\\'  # only that character's own files
+# only that character's (or weapon's) own files
+PREFIX = {'chris': 'pawn\\pl\\pl00\\', 'knife': 'pawn\\wp\\wp01\\', 'sheva': 'pawn\\pl\\pl01\\'}[KIND]
 
 
 def entries(data):
