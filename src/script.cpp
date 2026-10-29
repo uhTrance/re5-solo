@@ -34,6 +34,14 @@
 // missing partner freezes it. Solo: the partner's bit is set in "pressed" and "done", so the partner passes
 // and the game scores the prompt itself.
 //
+// Level AreaHit lists that name only the partner: a level script's AreaHit condition (vtable 0x103E1E4) with
+// act 4 (+0x14) tests the players in its target array (+0x1C: count +8, entries +0x14; entry vtable 0x1042A08,
+// +4 type 1 = player, +8 slot, resolved by 0xC51270 -> getPlayer). A missing player is skipped, so lists of both
+// players work solo, but a list of player 0 alone never passes as Sheva: 3-1's enemy manager (s200 EmMng) waits
+// for player 0 in marsh zone 7 before the crocodiles come. Such entries are pointed at the player's slot (only
+// in AreaHit lists, so scripts acting on the partner, e.g. moving them, are left alone). The conditions are
+// found by the same memory scan the tracer uses, on its own thread, a few seconds after each level load.
+//
 // Tracer (re5_solo_trace.txt next to the exe): every script function of the players' and the level's
 // script objects logs the first time it runs with each param. The 86 functions are all
 // order->vtable[slot](param) (thiscall, ret 4); names come from the registrations (script_names.h).
@@ -76,6 +84,38 @@ bool HasWeaponEquipped(BYTE* player) {
 
 // Level scripts: uFSMTask units (vtable 0xF9DA80) own a cFSMOrder (vtable 0x103D7A8) at +0x18.
 constexpr DWORD kFsmTaskVtable = 0xF9DA80, kLevelScriptVtable = 0x103D7A8;
+constexpr DWORD kAreaHitVtable = 0x103E1E4, kTargetVtable = 0x1042A08;
+
+// One AreaHit condition: if its player targets include the partner and not the player, retarget them.
+bool RetargetAreaHit(BYTE* cond) {
+    if (At<DWORD>(cond, 0x14) != 4) return false;
+    DWORD count = At<DWORD>(cond, 0x1C + 8);
+    auto entries = At<BYTE**>(cond, 0x1C + 0x14);
+    if (!entries || count == 0 || count > 8) return false;
+    int solo = SoloSlot(), partner = PartnerSlot();
+    bool hasPartner = false;
+    for (DWORD i = 0; i < count; ++i) {
+        BYTE* e = entries[i];
+        if (!e || At<DWORD>(e, 0) != kTargetVtable || At<BYTE>(e, 4) != 1) continue;
+        if (At<int>(e, 8) == solo) return false;
+        hasPartner |= At<int>(e, 8) == partner;
+    }
+    if (!hasPartner) return false;
+    for (DWORD i = 0; i < count; ++i) {
+        BYTE* e = entries[i];
+        if (e && At<DWORD>(e, 0) == kTargetVtable && At<BYTE>(e, 4) == 1 && At<int>(e, 8) == partner)
+            At<int>(e, 8) = solo;
+    }
+    return true;
+}
+
+bool TryRetarget(BYTE* cond) {  // its own guard: a stale match must not end the scan of its region
+    __try {
+        return RetargetAreaHit(cond);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
 
 using Handler = void(__fastcall*)(BYTE* self, void* edx, void* param);
 constexpr DWORD kSlots = 0x1A0 / 4;
@@ -176,9 +216,11 @@ void PatchLevelScript(DWORD* copy) { PatchClass(copy, 0x13C, 1); }  // cFSMOrder
 BYTE* volatile g_orders[512];
 volatile LONG g_orderCount;
 
-// Nothing simple points to all level scripts, so (tracing only) scan private RW memory once per level.
+// Nothing simple points to all level scripts, so scan private RW memory once per level: AreaHit lists (solo)
+// and, tracing, the level scripts themselves.
 void PatchLevelScripts() {
-    int found = 0;
+    int found = 0, retargeted = 0;
+    bool solo = !RecordMode() && SoloPlayer() && !Partner();
     MEMORY_BASIC_INFORMATION mbi;
     for (BYTE* a = reinterpret_cast<BYTE*>(0x10000); a < reinterpret_cast<BYTE*>(0x7FFE0000); a += mbi.RegionSize) {
         if (!VirtualQuery(a, &mbi, sizeof mbi)) break;
@@ -187,8 +229,12 @@ void PatchLevelScripts() {
             continue;  // (touching a guard page would eat another thread's stack guard)
         __try {
             auto p = static_cast<DWORD*>(mbi.BaseAddress);
-            for (SIZE_T i = 0, n = mbi.RegionSize / 4 - 8; i < n; ++i) {
-                if (p[i] != kFsmTaskVtable) continue;
+            for (SIZE_T i = 0, n = mbi.RegionSize / 4 - 16; i < n; ++i) {
+                if (p[i] == kAreaHitVtable && solo) {
+                    retargeted += TryRetarget(reinterpret_cast<BYTE*>(p + i));
+                    continue;
+                }
+                if (p[i] != kFsmTaskVtable || !TraceMode()) continue;
                 auto order = reinterpret_cast<BYTE*>(p[i + 6]);
                 if (order && !IsBadReadPtr(order, 4) && At<DWORD>(order, 0) == kLevelScriptVtable) {
                     PatchObject(order, kLevelScriptVtable, PatchLevelScript);
@@ -199,6 +245,7 @@ void PatchLevelScripts() {
         } __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
     if (found) Log("trace: %d level scripts patched", found);
+    if (retargeted) Log("scripts: %d zone check(s) that named only the partner now check the player", retargeted);
 }
 
 HANDLE g_scanner;
@@ -286,10 +333,10 @@ void StateReport() {
 void ScriptTick() {
     auto list = *reinterpret_cast<BYTE**>(kPlayerList);
     if (!list) return;
-    // Tracing: some areas give the player no script object, so a thread of its own also looks for new level
-    // scripts every 5 s (already patched ones no longer match the class vtable and are skipped). Not on this
-    // watcher: the memory scan is slow enough to delay closing the partner's slot at a level load.
-    if (TraceMode() && !g_scanner) g_scanner = CreateThread(nullptr, 0, TraceScanner, nullptr, 0, nullptr);
+    // A thread of its own scans for new level scripts and AreaHit lists every 5 s (some areas give the player no
+    // script object; already handled ones no longer match and are skipped). Not on this watcher: the memory
+    // scan is slow enough to delay closing the partner's slot at a level load.
+    if (!g_scanner) g_scanner = CreateThread(nullptr, 0, TraceScanner, nullptr, 0, nullptr);
     if (TraceMode()) HotReport();
     if (TraceMode()) StateReport();
     if (BYTE* stage = Stage(); stage && !RecordMode()) {
@@ -326,7 +373,7 @@ void ScriptTick() {
         auto order = player ? At<BYTE*>(player, kScriptOrder) : nullptr;
         if (order && At<DWORD>(order, 0) == kScriptOrderVtable && At<BYTE*>(order, kOrderPlayer) == player) {
             PatchObject(order, kScriptOrderVtable, PatchPlayerScript);
-            if (slot == SoloSlot() && TraceMode()) g_scanNow = true;  // a new level's scripts load with the player
+            if (slot == SoloSlot()) g_scanNow = true;  // a new level's scripts load with the player
         }
     }
 }
