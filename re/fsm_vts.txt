@@ -1,0 +1,15 @@
+cFSMOrder 103d7a8
+cFSMOrderCharacter 103ed90
+cFSMOrderCoopGate 103f090
+cFSMOrderDead 103f290
+cFSMOrderDoor 103f480
+cFSMOrderElevator 103f720
+cFSMOrderEm10 103f9a8
+cFSMOrderEm30 103fbf0
+cFSMOrderEm34 103fde8
+cFSMOrderEm42 103ffe8
+cFSMOrderEnemy 10401e0
+cFSMOrderItem 10403d0
+cFSMOrderOM 10405a8
+cFSMOrderPawn 10407b0
+cFSMOrderPlayer 1040c80

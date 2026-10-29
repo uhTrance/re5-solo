@@ -1,0 +1,311 @@
+# RE5 Solo
+
+A solo Resident Evil 5 story mode. The partner (Sheva by default) is never spawned, and each co-op moment is
+reworked so one player can do it. There is no ghost partner. The removed character still appears in in-engine
+cutscenes.
+
+## Target
+
+- Steam Gold Edition, `re5dx9.exe`: 32-bit MT Framework, fixed image base `0x400000` (no ASLR). REFramework
+  does not support it.
+- The exe on disk is SteamStub-wrapped (`.bind` section): analyse a memory dump, not the file. Code is spread
+  over several sections (`0xc4xxxx`, `0xcaxxxx`, `0xf0xxxx`, ...).
+- Steam's DRM ("INTEGRITY CHECK FAILURE", from `steamclient.dll`) fails on any changed code byte, and
+  intermittently on hardware breakpoints or swapped `.rdata` vtable slots. So the mod never patches game code
+  or the game's vtables. It edits heap state from a watcher thread (10 ms), and runs code on the game thread
+  through per-object vtable copies (`objhook.h`: the object's vtable pointer is swapped for a private copy
+  whose update slot calls the original, then ours). Default update slot is `+0x160` for `uOm` objects;
+  enemies use `+0x1c` (move, uEnemy `0x9d9b80`).
+- Startup FAULTs at `0x1465a71` / `0x1465a9c` are the DRM's own anti-debug traps; ignore them.
+
+## Layout
+
+- `dinput8.dll` (`loader.cpp`, `crashlog.cpp`, `padhook.cpp`): permanent proxy loader (the game imports
+  `DINPUT8.dll`). Owns the log (`re5_solo.log`), the crash recorder, the XInput/DirectInput hooks, and memory
+  the game may keep pointers to (`g_host->memory`: the boat's dummy player, the hint text).
+- `re5_solo_core.dll` (everything else): the mod. The loader runs a copy (`re5_solo_core.loaded<N>.dll`) and,
+  when the file changes, clears the filters, calls `CoreShutdown`, waits 300 ms, unloads it and loads the new
+  copy. `CoreShutdown` must leave nothing pointing into the core: it stops the threads, removes the F10 watch
+  handler and restores every per-object vtable copy. Contract in `src/host.h`.
+- `build.bat` builds both plus the launcher; `build.bat deploy` copies them next to `re5dx9.exe` (the loader
+  only when it changed, which needs a game restart; the core reloads within a second).
+- `RE5 Solo Launcher.exe` (`launcher.cpp`, DLLs embedded via `launcher.rc`): the only file shipped. Finds the
+  game via Steam (`SteamPath` + `libraryfolders.vdf`) or Browse (remembered in `HKCU\Software\RE5 Solo`);
+  installs, updates, uninstalls; toggles the marker-file options; Play runs `steam://rungameid/21690`. Its
+  colours follow the Windows light/dark setting and accent colour. A foreign `dinput8.dll` is kept as
+  `dinput8.dll.before-re5solo` and restored on uninstall. A running game's loader is renamed to
+  `dinput8.dll.old*` (cleared on the next install or uninstall).
+- Install also unpacks both characters' loose scene files (`scenefiles.cpp`, see Scenes); an install without
+  them counts as outdated.
+- Linux (Proton), untested on real Proton: under Wine (`wine_get_version` in ntdll) the launcher also searches
+  the Linux Steam folders (`STEAM_COMPAT_CLIENT_INSTALL_PATH`, `~/.steam/steam`, `~/.local/share/Steam`,
+  Flatpak) through the Z: drive, and Install sets `"dinput8"="native,builtin"` in the game prefix's
+  `HKCU\Software\Wine\DllOverrides` (Wine otherwise loads its built-in dinput8). In the game's own prefix
+  that's the registry; from another prefix it edits `compatdata\21690\pfx\user.reg` (game closed). A missing
+  override counts as outdated; uninstall removes only our exact value, and keeps it if another mod's
+  `dinput8.dll` is put back. The airboat's XInput hook may not match Proton's xinput1_3 (logged, skipped).
+- Crash recorder (`crashlog.cpp`): a vectored handler that only logs (the game has its own handler, no WER
+  report); faults outside the exe have a separate 8-entry budget.
+- Release: `dist\RE5 Solo <date>.zip` (launcher + `Read me.txt`).
+
+Marker files next to the exe (read when the core loads):
+
+| File | Effect |
+|---|---|
+| `re5_solo_sheva.txt` | Play as Sheva; Chris's slot is closed |
+| `re5_solo_record.txt` | Vanilla co-op: Sheva spawns, nothing is hooked; co-op jump landings are logged (`record.cpp`) |
+| `re5_solo_debug.txt` | F9 freezes enemies (unit move line 9 speed `+0x14` = 0); F10 arms a hardware write watch on the player's `+0x30` that logs any teleport over 300 units with the writer's EIP and callers |
+| `re5_solo_trace.txt` | Script tracer: logs each script function's first run per param, scans for level scripts, "hot:" lines = calls per 5 s |
+
+## Tools
+
+- `re/re5dx9_dump.bin`: image read from the running game (`0x400000..0x1928000`, not committed).
+- `re/`: `peek.py`, `poke.py`, `snap.py` (object snapshots/diffs), `findobj.py` (by vtable), `whatis.py`
+  (object containing an address), `classvt.py`, `disasm.py`, `xref.py`, `tp.py x y z` (teleport),
+  `fsm_dump.py` (offline level-script dump), `fsmstate.py <order>` (a script's current state), `needs2p.py`
+  (functions that call getPlayer(1) or the partner getter, by class; output `needs2p.txt`), `arc_types.py`
+  (type hash = `jamcrc(class) & 0x7fffffff` -> extension, `arc_types.json`).
+- `tools/loose_sheva.py [--chris] [--remove]`: Python version of the launcher's scene-file unpack.
+- Write watch (`debug.cpp`): a hex address in `re5_solo_watch.txt` next to the exe arms a 1-byte hardware write
+  watch there (checked each second, hot) and logs the first 8 distinct writers with stacks; delete to clear.
+  Class/property names are a good way in: each class's vtable +0xC registers its properties (name, type,
+  field address), and +0x10 is getDTI.
+- Python `pefile`, `capstone`; Cheat Engine; MSVC.
+
+## Core facts
+
+| What | Where |
+|---|---|
+| Class names | `uPl00Chris` str `0x101e9fc`, `uPl01Sheba` str `0x101ea08` (Capcom spells it "Sheba") |
+| DTI records | Chris `0x120328c` (vtbl `0x101aac8`), Sheba `0x12032b0` (vtbl `0x101ab20`); static init `0xf01a0f` / `0xf01a4f` |
+| Object vtables | Chris `0x101da00`, Sheba `0x101dc00`; size `0x2f80`, shared uPlayer ctor `0xb7b260` |
+| Player spawn loop | `0x7e99f0`: for slot 0..3, if `activeMask & (1<<slot)` -> `spawnPlayer(slot)` `0x7e9800` (thiscall, ret 4) -> `0x7e9730` (DTI lookup -> newInstance) |
+| Session info | `[[0x12340a4]+0x1042c]`: `+0x478` active-slot mask (story = 3), `+0x480` control per slot (1 local, 2 remote); slots are per character (0 Chris, 1 Sheva) |
+| Solo flag | `[0x12340a4]+0x10434` bit `0x80000`, the game's own one-player mode (set at `0x718597`). `requiredPlayers()` `0xa83070` = flag ? 1 : 2 |
+| Chosen character | `[0x11b2158] + 0x5940*[+0x20] + 0x273c4` (0 Chris, 1 Sheva); SceNo at `+0x273e0` (setter `0x726a80`), area at `+0x273d8` |
+| Partner | player `+0x2a74`, getter `0xb5bed0`; `PartnerDist` `+0x670`; `mbPartnerReady` getter `0xc40760`, setter `0xabccc0` |
+| Player state / action | `+0x10e0` state, `+0x10f8` current action object, `+0x18` parent object, `+0x21a0 + 0x30*i` inventory |
+| Unit lists | `[0x12340b0]` = sUnit; move line i at `+0x20 + 0x20*i` (`+0xc` first unit, `+0x14` speed, `+0x18` = i); units chain through `+8`; enemies on line 9 |
+| Co-op ready bits | object `+0x18dc` low nibble = ready slots (set `0xa82c50`, test `0xa82ca0`), `+0x17fc` 2 bits/slot = side; shared ready handler `0xaa2dd0` counts against `requiredPlayers()` |
+| Co-op classes | `uOmCoopDoor`, `uOmCoopGate`, `uOmCoopCardDoor`, `uOmCoopBox`, `uOmCoopTwist`, `uOmCoopSwitch_S301(_Lever)`, `uOmCoopTreasure`, `uOmCoopJumpBroad`, `uOmAreaCoop`; player actions `cPlAction_pl_act_coop_*` |
+| Teleporting a player | write every position copy (list in `gap.cpp`) or the collision sweep moves him back |
+
+## Removing the partner (`solo.cpp`, `sheva.cpp`)
+
+- The watcher clears the partner's bit in the active-slot mask before the level's spawn loop runs, so the
+  partner is never created, and sets the solo flag whenever only the player's slot is open (the game
+  rewrites it on some state changes).
+- With the solo flag, doors, gates and anything else using the shared ready handler work for one player.
+  Objects with their own hard-coded count of 2 are handled below.
+- The solo slot is the chosen character (`SoloSlot` / `SoloPlayer` / `Partner` / `PartnerSlot` in
+  `objhook.h`); every fix uses it rather than slot 0. `re5_solo_sheva.txt` holds the chosen-character field
+  at 1 while no player exists.
+- Online join requests still arrive with slot 2 closed; they are left alone.
+- **The partner's loadout** (`inventory.cpp`): the stage record holds both 9-slot loadouts (11 entries of
+  `0x2c`, id `+8`, count `+0xc`; Chris's block, Sheva's `0x420` later) in three copies, A `+0x23448` (the
+  level's), B `+0x249d8`, C `+0x27618` (Item Management's Ready). A chapter load empties both blocks in A,
+  writes back each spawned player's items, then copies A over B and C, so the never-spawned partner's weapons
+  were lost for good. The partner's block in C is remembered while no player exists and written back into any
+  copy that lost it once the player exists (verified: Chris's weapon survived a Sheva load and reached the save,
+  file offset `0x3dac`). The saved file has the same blocks at `0x3d80` (Chris) / `0x41a0` (Sheva).
+- **Save backups** (`backup.cpp`): each new version of `userdata\<account>\21690\remote\savedata.bin` is
+  copied to `re5_solo_saves\savedata_<write time>.bin` next to the exe (newest 30 kept).
+  `tools\re5save.py` decodes and re-encodes saves (each 8-byte block XORed with the previous encoded one,
+  checksum at `+8`).
+
+## Scenes (`scenefiles.cpp`)
+
+In-engine scenes use `uBioActorPlayer` stand-ins (`mPlayerID` `+0x9270`); redirect `0x827050` swaps
+`pawn\pl\pl00`/`pl01` paths for the loaded player's model (`player+0xa80`). With no partner the raw path is
+requested and the game fails (error at `0x6f96e1`, e.g. on 3-1: `pl0100.mod`). RE5 falls back to loose files
+under `nativePC_MT`, so Install unpacks every `pawn\pl\pl01\` file of `uPl01ShebaNormal.arc` and every
+`pawn\pl\pl00\` file of `uPl00ChrisNormal.arc` from the player's own archives (model, textures, `.jex`
+skeleton, cloth, motions, face, collision). ARC v7: `"ARC\0"`, u16 version, u16 count, 0x50-byte entries
+`{name[64], type hash, packed size, size (low 29 bits), offset}`; packed entries are zlib. Files written are
+listed in `re5_solo_loose.txt`; uninstall removes only those, and existing files with other bytes are left
+alone.
+
+It also unpacks `pawn\wp\wp01\` from `uWp01.arc` (Chris's knife, about 400 KB). Sheva's knife is `uWp0e.arc`.
+Nutelcio's Custom Weapons Pack replaces that archive (and other `uWp*`), and evidently asks for `wp0100.mod` without packing it (inferred from a
+user's crash; the pack itself not inspected). In co-op,
+Chris's knife keeps it loaded. With Chris removed, the game quits with "Failed open file ... wp0100.mod".
+
+## Co-op objects
+
+- **Elevators** (`elevator.cpp`, `uOmElevator` + 11 subclasses): own ready handler (vtbl `+0x184`,
+  `0xac6d50`) needs 2 ready bits, ignoring the solo flag. Press = event 0 (`cActPlReady` vtbl `0xfe70e4`,
+  `+0x20` elevator), `0xf1` = try go. Once the player is ready: mark the partner's bit, resend `0xf1`.
+- **Twist levers and button doors** (`twist.cpp`, `uOmCoopTwist` e.g. 4-1 `uOm08e4`, ready handler
+  `0xaafad0`; `uOmCoopCardDoor` e.g. 4-2 `uOm0918`, `0xaa0f30`): same fix as elevators.
+- **Boxes** (`box.cpp`, `uOmCoopBox` DTI `0x11f87e4` + 5 subclasses): `+0x1a48` = players needed. Press
+  (event 0, handler `+0x188` `0xa9b530`) sets ready bit, at-box bit (slot+4), `+0x1a62[slot]` pushing and the
+  side. Go (`0xf1` in `+0x184`, `0xa9b1a0`) with one of two ready only shakes. Setting `+0x1a48` = 1 does not
+  push. Fix: mark the partner ready/at box/pushing on the player's side and resend `0xf1`; cleared on let go.
+- **Pulleys** (`pulley.cpp`, `uOmCoopSwitch_S301`: 4-2 `uOma006`, `uOm0939..093D`): go needs handle bytes
+  `+0x1a51/52` both 2. One pull marks the other handle and sends `0xf1` once per pulley (repeating it broke
+  later pulleys). `+0x1a50` (handles usable only with a partner, so no prompt solo) is cleared on hook.
+- **Cranks** (`crank.cpp`, `uOmCrank` + 9 subclasses): wind `+0x1970` (shadow `+0x17fc`, percent `+0x197c`),
+  max `+0x1974` (300); the gate follows the wind and unwinds on release. Wind is pinned at 66% of max once
+  reached. `+0x19f5` (finished) blocks turning. Valves (`+0x19a4` bit 4, e.g. 3-2 `uOm08df`) are skipped:
+  they finish at max by themselves. In `cActPlWind` the crank is `+0x20`, the player `+0x24` (reversed vs the
+  jump actions), so every hook checks the class (`IsA`).
+- **3-2 crocodile raft and bridge** (`croc.cpp`, crank `uOm08a6` vtbl `0xfccda0`): the raft (`uOm08a3`,
+  crank `+0x1a00`) follows the crank percent. While the player stands on the raft the crank is wound at
+  11.5/s (Sheva's rate); off it, the vanilla unwind (~4.4/s) takes it back. The same class raises the bridge
+  (links a `uOmFollow`, max 150); it is held at max once fully wound.
+- **Two-man levers** (`lever.cpp`, `uOmSwitch` pairs, e.g. 3-3 `uOm08f3`): index `+0x19a0` (0/1), partner
+  `+0x199c`; a pull sets `0x1202040[index]`, the pair goes when both are set, checked at the pull. The
+  partner's byte is set when the player walks up to a lever, plus a mirror after the pull as fallback (which
+  must ignore the byte the mod set). The game clears the pre-set byte, so each lever is pulled once in turn.
+- **Lever lift** (`lift.cpp`, 3-3 `uOm0944`, a `uOmSwitch` whose object is the lift): stepping onto the
+  platform (within 130 of `+0x30`, edge-triggered, lever idle) runs the pull handler's steps (`+0x1985`
+  pressed, ready bit, toggle `+0x17fc`, action 3) with no player; with a player, action 3 moves him to the
+  lever.
+- **Lever platform** (`lift.cpp`, 3-3 `uOm090d_Floor`, lever `uOm08bc` linked only by script): position =
+  blend `+0x1988` of two end points; actions 0 idle, 1 speed up, 2 slow down, 3 cruise, 4 stopped, each
+  copying params `+0x17fc..+0x1808` in on start. Stepping on starts action 1 with `{blend, +-1, 0, 0.1}`; at
+  the far end action 4 with `+0x17fc` = that end. Re-arms after the player has been off for 1 s.
+- **Jack platforms** (`lift.cpp`, area 500 `uOm0924_Container`): in co-op you shoot the platform your partner
+  stands on. Action `+0x10e0`: 1 down, 2 rising, 0 up, 3 lowering; writing it alone does nothing, the action
+  call (vtbl `+0xdc`) does. Shooting a down platform while standing on another down one puts the shot one
+  back and raises the player's.
+- **Gap jumps and boosts** (`gap.cpp`, `uOmCoopJumpBroad`; subclass `uOmf111` = broad jump, `uOmf112` = jump
+  up 4 m): the crossing is the pair animation, so solo nothing moves. Both jump actions also wait on the
+  player manager's flag `+0x38`, set in its update (`0x7e9520`) only with 2 players in position (hard-coded).
+  Fix: the manager hook sets the flag; once the player is ready he is put on foot and moved along the object's
+  axis (`+0x80` row) away from his side: f111 600 across, f112 102 forward and 405 up (co-op recording: 101.9, 400). He is placed slightly above the ledge
+  and settles onto it.
+- **3-1 airboat** (`boat.cpp`, `uOm1306` vtbl `0xfbffa8`): holding aim leaves the wheel for the front deck
+  (boat coasts), releasing returns. The game's swap ends in `exchange(newDriver, newDeck)` `0xa8c650`, which
+  dereferences the missing player and crashes. The boat's update does the moves instead: leave = the deck half
+  of exchange (and drops the driving camera mode, `0x843420(cam+0x2de0, cam+0x2dd0)`), take = the game's
+  exchange with a blank dummy as deck player. Seat byte `+0x18dc` bits 4-5 wheel, 6-7 deck. A permanent
+  partner = self crashes the swap.
+- **Pad on the boat** (`xinput.cpp`, `dinput.cpp`, hooks in `padhook.cpp`): on a pad the boat drives with RT
+  forward / LT reverse, and RT is also aim. While driving (state `0x6a`) the game sees RT = right stick up,
+  LT = stick down, stick vertical centred; `boat.cpp` reads the real RT for aim. XInputGetState (IAT
+  `0xf4a40c`) is Windows code, so hooking it is DRM-safe: chained onto Steam's jump when present, else
+  hotpatched via the int3 padding. DirectInput pads: button 7 (R2) is aim, right stick vertical is `lZ`.
+- **2-3 jeep turret** (`jeep.cpp`, `uOmJeep` `0xff17b0`, `uOm1304` `0xff1960`): one `uIdCockpit01` per
+  player at `+0x1974/+0x1978`; the partner's has no player (`+0x78`) and its first step reads that player's
+  inventory, crashing on load. The empty cockpit gets the solo player.
+- **4-2 collapsing floor** (`collapse.cpp`, `uOma004_Collapse`): starts its scene only when game flags `0xc8`
+  and `0xc9` (one per player in position) are both set; the mod sets the partner's. The QTE's motion callback
+  (`0xb073c0`) reads player slot 1 outright; it is wrapped so slot 1 holds the solo player for that call. The
+  callback registers and first runs inside `cActPlRun`'s start, so the hook goes in via `cActPlRun`'s type
+  object (DTI `0x11ffde0`, create slot): each new `cActPlRun` gets a vtable whose start swaps the callback.
+- **6-2 Uroboros chase** (`collapse.cpp`, `uOma00c_UroAction`): each press prompt (`cActAB` vtbl
+  `0x100ce68`, update `0xb23340`) checks players 0 and 1 when its timer ends; a player passes on their
+  `+0x18dc` bit or as AI (`+0x2da8 == 1`), an empty slot fails and leads to a hang. The update runs with the
+  solo player standing in the partner's slot and bits.
+- **4-1 separation** (`split.cpp`): after the `uOmAreaPlHit` trigger (x -1404), the area change sets each
+  slot to start point [slot] (`0x822e60`, write `0x5837f5`); slot 0's point is the far side. Start records:
+  `[[sGame+0x10430]+0x50+4*(area/100)]+4*(area%100)`, 64 bytes (area 300, record 1). The record's base is
+  rewritten to its point 1 (the near side) beforehand; a per-frame correction remains as fallback.
+
+## Level scripts and stage logic
+
+- **Zones** (`zones.cpp`): managers `[[0x11e8660]+0xd4+4i]` (count `+8`, list `+0x14`); zone `+4` =
+  definition (`+0xc` 0 any / 1 all, `+0x3c` required bits), `+8` = state (`+0x10` players inside; bit 4 = any
+  player). Scripts use `AreaHit` (cFSMOrder vtbl `+0xb4`, `0xc340c0`) on "all of 0x13", which needs the
+  partner. The partner's bit is moved to the player in every "all of" requirement (every second).
+- **Player scripts** (`script.cpp`): `cFSMOrderPlayer` (vtbl `0x1040c80`) at player `+0x1890`. `AreaHitPl`
+  (`+0x184`, `0xc40830`) bails with no partner; the player is made his own partner for that call only.
+  Forcing its result true takes the partner's branch instead.
+- **1-1 equip a weapon** (`script.cpp`): stage logic at `0x73a2a9` counts armed players and at 2 sets SceNo
+  0x497. At SceNo 0x489 with the player armed (inventory slot `+0x20 == 1`, `+0x2d == 1`, item `+8` !=
+  0x137) the mod writes 0x497.
+- **1-1 both players in the room** (`script.cpp`): stage controller `[[0x1234578]+0x3830]` (vtbl
+  `0xf54310`), step byte `+0x639`. Step 0 (`0x73aa86`) waits for zone 4 of manager 6 to hold both players;
+  step 1 picks SceNo 0x4fe/0x4ff by distance. With the player in that zone: SceNo = `0x4fe + slot`, step = 2.
+- **Cutscene QTEs** (`script.cpp`): `sEventPlayer` `[0x11b2018]` `+0xf0` = cEventActionButton (`+8`
+  active, `+0xc` players who must press, `+0x10` pressed in time, `+0x14` done, `+0x1c` result). A prompt for
+  the absent player never completes and the cutscene waits forever (`0x7b2a11`). The partner's bit is set in
+  `+0x10` and `+0x14`.
+- **Cage** (`cage.cpp`, area 500 `room1_Event00`): waits RSF 25 (set by the ship cutscene, not rerun after a
+  checkpoint), SceNo 10240, then RSF 200/201 = which slot entered the cage. Nothing sets these solo, so the
+  mod answers each step as the script reaches it: 25; 10240 once the player is within 5 m of the cage (at
+  SceNo 10230); 200 + partner slot. RSF bits start at stage `+0x23218`, MSB first per dword (`+0x23214` is the
+  flag object's vtable; writing there crashes). The scripts' zone references to the cage zone (vtable
+  `0x103d790`, manager 0 zone 16) are repointed at zone 2.
+- Script internals: 86 handlers, all `order->vtbl[slot](param)` (thiscall, ret 4), names in
+  `src/script_names.h` (from the `0xc29620` registrations). Level scripts = `uFSMTask` (vtbl `0xf9da80`)
+  `+0x18` -> cFSMOrder (vtbl `0x103d7a8`). cFSMOrder `+0x10` -> cAIFSMAgent::Core, `+8` current state, state
+  `+0x10` count / `+0x18` transitions (`+0xc` target, conditions read properties such as SceNo directly, so
+  the tracer misses them). `0xc29920` "branch" sets a flag (type 0 = script FreeFlags at `+0x148`, type 3 =
+  game flags). When a script waits on a SceNo nothing sets, search the code for that constant.
+- Finding what a co-op moment needs: compare a record-mode (co-op) trace with a solo one.
+
+## Bosses
+
+- **Uroboros as Sheva** (`uroboros.cpp`): the player manager's count (`+0x34`) stays 1 with only slot 1
+  filled. `uEmIntel40` re-picks its target slot (`+0x2EC`) with `0x99AEF0`, which loops over slots 0..count-1,
+  so it found nobody and the Uroboros ran on the spot. The slot is overwritten with the player's; `0x99B115`
+  then copies that player into the target (`+0x2C`), and a later -1 pick leaves it. Raising the count instead
+  crashes (`0x731A94` reads an empty slot's position). That read is the 1-2 incinerator's area controller
+  (`aS103`, vtbl `0xf53668`, `[[0x1234578]+0x3830]`) pushing players out of the door's way, which crashed as
+  Sheva too; its update (`+0x1c`) runs with the player in slot 0. Its intro walk (`+0x20c0`, action 0x21) is vanilla: it
+  ends at RSF 9, set by `pulldown_demo` after shooting its arm off (RSF 1). The cutscene after the incinerator
+  (scenes 1610/1620) ends in a state (`0xaf1470` enter / `0xaf1990` update / `0xaf1c80` exit) that plays the
+  closing shot on `getPlayer(0)`'s camera and waits for it (camera `+0x162`); as Sheva it froze on the last frame.
+  While stage flags `0x18000` are set in those scenes, slot 0 also holds the player (verified live: filling it
+  un-froze the game and the flags cleared). Not the incinerator switch: its camera (`0xb35980`, `+0x17fc`) only
+  runs when `+0x19a4 >= 0`, which it never is here.
+
+- **Ndesu** (2-3, `uEm45` live vtbl `0xf83828`; `0xf832e0` is another uEm45 vtable and patching it does
+  nothing) (`ndesu.cpp`): prompt press `+0x230` (`0x8e08b0`) marks `+0x1bb4` bit `0x40 << slot` and acts only
+  with both; `+0x234` (`0x8e09b0`) runs the players' side (type 0 crouch is player 0 only; types 1/2 need
+  both). The mod marks the partner's bit and does the solo player's half.
+- **Ndesu tuning** (`enemyhp.cpp`, Ndesu only): health shorts `+0x1364`/`+0x1366` scaled to 2/3 (1.5x damage),
+  again after any reset. Stagger gauges 1-4 (`+0x1c0c + 12*id`: flag, value, max; drained by `+0x204`
+  `0x8e19e0`) have their max halved and refills clamped. Bulbs `uEm4502` (DTI `0x11eebe0`, Ndesu
+  `+0x1f64[5]`, main = index 4): real health is the int at `+0x1f50`, re-armed each exposure (26000 main, 8000
+  others) and must die within one window; every re-arm of the main bulb is halved.
+- **Wesker phase 1** (6-3, `uEm80` `0xf8be60`, `uEm81` `0xf8c300`) (`wesker.cpp`): press `+0x230`
+  (`0x9084b0`) -> `+0x234` (`0x9085e0`, (player, type, result)); type 1 hold (action 0x6a, holder `+0x1f64`),
+  type 2 inject (only while `+0x10e0` == 0x6a; injector = presser). After the player has held him 1 s with no
+  partner, the mod calls `+0x234(0, 2, 0)` from his update.
+- **Volcano Wesker** (`uEm82`): no code needed; partner lookups are null-checked, so the boulder and
+  rescue-Sheva parts are skipped and the fight starts directly.
+
+## Voice and hints
+
+- **Partner lines** (`voice.cpp`): subtitled stage lines come from `sound\bgm\sNNN_radio.stq` (sMessage
+  `[0x11b26f0]+0x2f6e8`); request id = line number, radio version = id + 100, played when the speaker's slot
+  has no player (`0x7d9e0e`, `0x7e6370`). Each radio request (0xa4 each from header `+0x24`: `+0x26` volume,
+  `+0x94` entry, `+0x9c` stream) is pointed at its normal twin, keeping 2D playback.
+- **On-screen hint** (`hint.cpp`): `sMessage::open` `0x7db3a0` (`(u8 file, u16 group, u16 index, float secs,
+  s8 player, int mode)`, ret 0x18). mes_system (file 0) entry 820 ("(dummy)") is pointed at a mod buffer of
+  (code, attr) u16 pairs; glyph codes in `hint.cpp` (`0x02` = "1"; no "0" or "/"). One window shows at a
+  time; its record is at sMessage `+0x2f670` (2 x 0x1c: `+0` file, `+4` entry, `+0xc` countdown). The boat
+  tops up the countdown while aboard and zeroes it 1 s after leaving. Empty lines are dropped, so the boat
+  hint uses short lines that end before the ammo ring.
+- **In-game file reader** (for a possible how-to-play file): window record 0 while reading: `+1` msg file
+  (5 = file texts), `+2` document, `+4` page index, `+8` page count. Its opener is not found
+  (`0x7db3a0` is a different mode).
+
+## Colour filter option (`filter.cpp`, `re5_solo_nofilter.txt`)
+
+- The green/yellow tint is `uColorCorrectFilter` (vtable `0x10AFF08`, a unit): 16 `Corrector`s at +0x30 (0x30 each:
+  +4 `mEnable`, +8 `mType`, +0x10 `mFactor`/`mFactor2`), tone curves, gamma. Found via the `ColorCorrectFilter`
+  draw-pass name and the class's own property list.
+- Every frame `sLightLinker::ColorCorrect` (vtable `0xF63930`, per area, itself re-applied through the property
+  setter `0x6D44F4`) copies its correctors in (`0x7C2FB1`); the filter's +0x18 (`0x482810`) builds the matrix at
+  +0x330 from the enabled ones, its draw (+0x24, `0x483030`) applies it. Clearing `mEnable` anywhere else is undone
+  within a frame; the mod's vtable copy clears them inside +0x18, before the original runs.
+- New areas' filters are hooked within 100 ms. `sLightLinker::ViewFilter` +7 (`mEnableColorCorrect`) does nothing
+  visible.
+
+## Known issues and unconfirmed
+
+- 2-3 jeep: a stray orange aim arc shows on screen.
+- Not confirmed in play: elevators (mod build; the manual write worked), 4-1 separation fix, partner voice
+  lines, boat pad remap and hint box, DirectInput pads, Sheva mode (and whether the pad drives slot 1; see
+  `+0x480` in the log), Ndesu crouch for player 1 (uses Chris's crouch params, a guess).
+
+## Open
+
+- Unhandled co-op moments: cliff climbs and ladders (`cPlAction_pl_act_coop_*`, e.g. 3-1 ladder), Jill (5-3).
+- Still to check from `re/needs2p.txt`: `uOm0201_Piano`, `uOmClutch`, `uOmS103ScrAdj`, `uOmJeepRail`, Jill
+  (`uEm83/84` pinion), `uEm82` pinion pairs (`0x92d0e0`..).
+- A full playthrough of every chapter for softlocks.

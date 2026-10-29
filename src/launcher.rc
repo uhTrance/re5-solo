@@ -1,0 +1,6 @@
+// The mod files the launcher installs (build.bat runs rc with /i build\).
+// Its icon (tools\make_icon.py draws it); the window class loads resource 1.
+1 ICON "launcher.ico"
+
+101 RCDATA "dinput8.dll"
+102 RCDATA "re5_solo_core.dll"

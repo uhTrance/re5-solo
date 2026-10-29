@@ -1,0 +1,510 @@
+{
+ "0026e7ff": {
+  "class": "rChainCol",
+  "ext": "ccl"
+ },
+ "017a550d": {
+  "class": "rLotSelectorMove",
+  "ext": "lom"
+ },
+ "018735a6": {
+  "class": "rHkMaterial",
+  "ext": "hkm"
+ },
+ "0253f147": {
+  "class": "rHit",
+  "ext": "hit"
+ },
+ "02833703": {
+  "class": "rEffectStrip",
+  "ext": "efs"
+ },
+ "0315e81f": {
+  "class": "rSoundDirectionalSet",
+  "ext": "sds"
+ },
+ "039d71f2": {
+  "class": "rSoundReverbTable",
+  "ext": "rvt"
+ },
+ "04124e96": {
+  "class": "rSoundSourceSE",
+  "ext": "sew"
+ },
+ "064a3ad8": {
+  "class": "rSoundSpeakerSetXml",
+  "ext": null
+ },
+ "0738fa28": {
+  "class": "rEffectAnimation",
+  "ext": "efa"
+ },
+ "07437cce": {
+  "class": "rSoundAttributeSe",
+  "ext": "ase"
+ },
+ "07b8bcde": {
+  "class": "rFacialAnimation",
+  "ext": "fca"
+ },
+ "091c5477": {
+  "class": "rHavokVertexLayout",
+  "ext": null
+ },
+ "093ce570": {
+  "class": "rLotSelectorMoveXml",
+  "ext": null
+ },
+ "09cb8acf": {
+  "class": "rSoundRequestXml",
+  "ext": "srq"
+ },
+ "0a75925d": {
+  "class": "rHavokVehicleDataXml",
+  "ext": "hvd"
+ },
+ "0dadab62": {
+  "class": "rObjAdj",
+  "ext": "oba"
+ },
+ "0ecd7df4": {
+  "class": "rSoundCurveSet",
+  "ext": "scs"
+ },
+ "10c460e6": {
+  "class": "rMessage",
+  "ext": "msg"
+ },
+ "10ed5d41": {
+  "class": "rPathXml",
+  "ext": null
+ },
+ "11fa3ad2": {
+  "class": "rLotSelectorXml",
+  "ext": null
+ },
+ "126ad8e0": {
+  "class": "rMovie",
+  "ext": "wmv"
+ },
+ "14324f60": {
+  "class": "rSoundSourceMusicInterMediate",
+  "ext": "sngw"
+ },
+ "15302ef4": {
+  "class": "rLayout",
+  "ext": "lot"
+ },
+ "167dbbff": {
+  "class": "rSoundStreamRequest",
+  "ext": "stq"
+ },
+ "176c3f95": {
+  "class": "rLotSelector",
+  "ext": "los"
+ },
+ "17a69ace": {
+  "class": "rMovieOnMemoryInterMediate",
+  "ext": "wmv"
+ },
+ "1af83e50": {
+  "class": "rSoundDirectionalSetXml",
+  "ext": "sds"
+ },
+ "1ba81d3c": {
+  "class": "rNeck",
+  "ext": "nck"
+ },
+ "1bcc4966": {
+  "class": "rSoundRequest",
+  "ext": "srq"
+ },
+ "1ed12f1b": {
+  "class": "rGoalPos",
+  "ext": "glp"
+ },
+ "1efb1b67": {
+  "class": "rAdhesion",
+  "ext": "adh"
+ },
+ "20a81bf0": {
+  "class": "rAIPositionEvaluationFuncList",
+  "ext": "pef"
+ },
+ "2282360d": {
+  "class": "rJointEx",
+  "ext": "jex"
+ },
+ "232e228c": {
+  "class": "rSoundReverb",
+  "ext": null
+ },
+ "2406169c": {
+  "class": "rPathListXml",
+  "ext": null
+ },
+ "241f5deb": {
+  "class": "rTexture",
+  "ext": "tex"
+ },
+ "255d51cd": {
+  "class": "rSoundSourceOggVorbis",
+  "ext": "sngw"
+ },
+ "25ed42db": {
+  "class": "rBioTree",
+  "ext": "plt"
+ },
+ "266e8a91": {
+  "class": "rLinkUnit",
+  "ext": "lku"
+ },
+ "276de8b7": {
+  "class": "rEffect2D",
+  "ext": "e2d"
+ },
+ "27eae89d": {
+  "class": "rCollada",
+  "ext": "dae"
+ },
+ "2819d205": {
+  "class": "rAHEffectXml",
+  "ext": null
+ },
+ "2b40ae8f": {
+  "class": "rSoundEQ",
+  "ext": "equ"
+ },
+ "2c4666d1": {
+  "class": "rScrHiding",
+  "ext": "smh"
+ },
+ "2d12e086": {
+  "class": "rSoundRandom",
+  "ext": "srd"
+ },
+ "2dc54131": {
+  "class": "rCloth",
+  "ext": "cdf"
+ },
+ "2fd6616e": {
+  "class": "rIni",
+  "ext": "ini"
+ },
+ "30ed4060": {
+  "class": "rPath",
+  "ext": "pth"
+ },
+ "317ab4ed": {
+  "class": "rSoundSourceEnvironmentInterMediate",
+  "ext": "envw"
+ },
+ "31f693d6": {
+  "class": "rMovieOnDisk",
+  "ext": "wmv"
+ },
+ "3207d421": {
+  "class": "rAIPositionEvaluationFuncListXml",
+  "ext": null
+ },
+ "358012e8": {
+  "class": "rVibration",
+  "ext": "vib"
+ },
+ "36e29465": {
+  "class": "rHkCollision",
+  "ext": "hkx"
+ },
+ "37531be2": {
+  "class": "rNavigationMeshDae",
+  "ext": null
+ },
+ "38f66fc3": {
+  "class": "rSoundSeGenerator",
+  "ext": "seg"
+ },
+ "39c52040": {
+  "class": "rCameraList",
+  "ext": "lcm"
+ },
+ "39c73911": {
+  "class": "rSoundSourceSEInterMediate",
+  "ext": "sew"
+ },
+ "3a96d8a0": {
+  "class": "rSoundDirectionalCurveXml",
+  "ext": null
+ },
+ "3b7125a5": {
+  "class": "rSoundCurveSetXml",
+  "ext": "scs"
+ },
+ "3e363245": {
+  "class": "rChain",
+  "ext": "chn"
+ },
+ "3e87a22a": {
+  "class": "rSoundRandomXml",
+  "ext": "srd"
+ },
+ "3ff99995": {
+  "class": "rSoundPackageXml",
+  "ext": "spc"
+ },
+ "430b4ff4": {
+  "class": "rPathList",
+  "ext": "ptl"
+ },
+ "46810940": {
+  "class": "rSoundEngineValue",
+  "ext": "egv"
+ },
+ "4784fc75": {
+  "class": "rCommonEffectXml",
+  "ext": null
+ },
+ "4a3369c0": {
+  "class": "rAIFSMXml",
+  "ext": null
+ },
+ "4bee82c8": {
+  "class": "rArchivePack",
+  "ext": "apk"
+ },
+ "4c0db839": {
+  "class": "rScheduler",
+  "ext": "sdl"
+ },
+ "4ca26828": {
+  "class": "rSoundMotionSe",
+  "ext": "mse"
+ },
+ "4e2fef36": {
+  "class": "rModelMontage",
+  "ext": "mtg"
+ },
+ "4e397417": {
+  "class": "rEffectAnim",
+  "ext": "ean"
+ },
+ "4ef19843": {
+  "class": "rNavigationMesh",
+  "ext": "nav"
+ },
+ "4f16b7ab": {
+  "class": "rHkRBInfoList",
+  "ext": "hri"
+ },
+ "50f9db3e": {
+  "class": "rShader",
+  "ext": "bfx"
+ },
+ "513d8060": {
+  "class": "rClothXml",
+  "ext": "cdf"
+ },
+ "51fc779f": {
+  "class": "rCollision",
+  "ext": "sbc"
+ },
+ "5204d557": {
+  "class": "rShape",
+  "ext": "shp"
+ },
+ "538120de": {
+  "class": "rSoundEngine",
+  "ext": "eng"
+ },
+ "557ecc08": {
+  "class": "rAHEffect",
+  "ext": "aef"
+ },
+ "55ef9710": {
+  "class": "rHavokLinkCollisionLayout",
+  "ext": null
+ },
+ "56ab303e": {
+  "class": "rScrHidingXml",
+  "ext": null
+ },
+ "5802b3ff": {
+  "class": "rAHCamera",
+  "ext": "ahc"
+ },
+ "583fe225": {
+  "class": "rObjAdjXml",
+  "ext": null
+ },
+ "585831aa": {
+  "class": "rPos",
+  "ext": "pos"
+ },
+ "5898749c": {
+  "class": "rBioBgmMap",
+  "ext": "bgm"
+ },
+ "58a15856": {
+  "class": "rModel",
+  "ext": "mod"
+ },
+ "592d804b": {
+  "class": "rSoundCurveXml",
+  "ext": null
+ },
+ "5af4e4fe": {
+  "class": "rMotion",
+  "ext": "mot"
+ },
+ "5cbab342": {
+  "class": "rSoundSourceEnvironment",
+  "ext": "envw"
+ },
+ "5f36b659": {
+  "class": "rAIWayPoint",
+  "ext": "way"
+ },
+ "5f84f7c4": {
+  "class": "rMovieOnMemory",
+  "ext": "wmv"
+ },
+ "60524fbb": {
+  "class": "rShapeWeight",
+  "ext": "shw"
+ },
+ "60dd1b16": {
+  "class": "rLayoutSpr",
+  "ext": "lsp"
+ },
+ "613b2ab2": {
+  "class": "rEffectSetDataList",
+  "ext": "esl"
+ },
+ "61e50998": {
+  "class": "rSoundStreamRequestXml",
+  "ext": "stq"
+ },
+ "64a34520": {
+  "class": "rSoundSource",
+  "ext": "sngw"
+ },
+ "65b275e5": {
+  "class": "rScenario",
+  "ext": "sce"
+ },
+ "66b45610": {
+  "class": "rAIFSM",
+  "ext": "fsm"
+ },
+ "671f21da": {
+  "class": "rStartPos",
+  "ext": "stp"
+ },
+ "68b0ced6": {
+  "class": "rAIWayPointXml",
+  "ext": "way"
+ },
+ "6986eff3": {
+  "class": "rAHCameraXml",
+  "ext": null
+ },
+ "6a000349": {
+  "class": "rEffectSetData",
+  "ext": "esd"
+ },
+ "6d5ae854": {
+  "class": "rEffectList",
+  "ext": "efl"
+ },
+ "6f9dabee": {
+  "class": "rGridEnvLight",
+  "ext": "lge"
+ },
+ "71950384": {
+  "class": "rMovieOnDiskInterMediate",
+  "ext": "wmv"
+ },
+ "73850d05": {
+  "class": "rArchive",
+  "ext": "arc"
+ },
+ "748aa719": {
+  "class": "rJointExXml",
+  "ext": null
+ },
+ "7494f854": {
+  "class": "rHavokConstraintLayout",
+  "ext": null
+ },
+ "753b3a8c": {
+  "class": "rHavokVehicleData",
+  "ext": "hvd"
+ },
+ "754b82b4": {
+  "class": "rAreaHitShape",
+  "ext": "ahs"
+ },
+ "758b2eb7": {
+  "class": "rCommonEffect",
+  "ext": "cef"
+ },
+ "76820d81": {
+  "class": "rMotionList",
+  "ext": "lmt"
+ },
+ "7706b65e": {
+  "class": "rNavigationMeshXml",
+  "ext": "nav"
+ },
+ "7808ea10": {
+  "class": "rRenderTargetTexture",
+  "ext": "rtex"
+ },
+ "78e8d875": {
+  "class": "rCameraListXml",
+  "ext": "lcm"
+ },
+ "79c47b59": {
+  "class": "rSoundSourceADPCM",
+  "ext": "sngw"
+ },
+ "7b7138d9": {
+  "class": "rAIFSMParameter",
+  "ext": null
+ },
+ "7b806a6a": {
+  "class": "rConfig",
+  "ext": "cfg"
+ },
+ "7bbf5cb0": {
+  "class": "rAIDynamicLayout",
+  "ext": "dpth"
+ },
+ "7c8578f1": {
+  "class": "rHkRBInfoListXml",
+  "ext": null
+ },
+ "7ce80ce4": {
+  "class": "rHitXml",
+  "ext": null
+ },
+ "7ce81cb8": {
+  "class": "rNeckXml",
+  "ext": null
+ },
+ "7d1530c2": {
+  "class": "rSoundSourceMusic",
+  "ext": "sngw"
+ },
+ "7e33a16c": {
+  "class": "rSoundPackage",
+  "ext": "spc"
+ },
+ "7e7605bf": {
+  "class": "rAIDynamicLayoutXml",
+  "ext": null
+ },
+ "7ed4c86c": {
+  "class": "rSoundEngineXml",
+  "ext": null
+ }
+}

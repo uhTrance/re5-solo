@@ -1,0 +1,17 @@
+# Build output and release zips
+build/
+dist/
+*.obj
+*.res
+
+# The game's own code and data: a memory dump of re5dx9.exe, extracted level scripts, memory snapshots
+re/re5dx9_dump.bin
+re/fsm/
+re/snaps/
+
+# Personal: saves (they hold the Steam ID), playthrough and tool logs
+saves/
+tools/newgame_template.bin
+playthroughs/
+*.log
+*.dmp
