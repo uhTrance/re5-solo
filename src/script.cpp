@@ -42,6 +42,12 @@
 // in AreaHit lists, so scripts acting on the partner, e.g. moving them, are left alone). The conditions are
 // found by the same memory scan the tracer uses, on its own thread, a few seconds after each level load.
 //
+// That retarget sends scripts with a branch per player (s307's breaker, bure_mes: player 0 in zone 24 -> flag
+// 12 -> camera on player 0, player 1 -> flag 13 -> camera on player 1) down player 0's branch, and a camera
+// aimed at the missing partner never ends: the script waited on EndCamera for good and the power never came
+// on. So level camera params (vtable 0x103E360, +9 target: 0/1 = that player's view) that name the partner
+// are pointed at the player too, by the same scan.
+//
 // Tracer (re5_solo_trace.txt next to the exe): every script function of the players' and the level's
 // script objects logs the first time it runs with each param. The 86 functions are all
 // order->vtable[slot](param) (thiscall, ret 4); names come from the registrations (script_names.h).
@@ -85,6 +91,7 @@ bool HasWeaponEquipped(BYTE* player) {
 // Level scripts: uFSMTask units (vtable 0xF9DA80) own a cFSMOrder (vtable 0x103D7A8) at +0x18.
 constexpr DWORD kFsmTaskVtable = 0xF9DA80, kLevelScriptVtable = 0x103D7A8;
 constexpr DWORD kAreaHitVtable = 0x103E1E4, kTargetVtable = 0x1042A08;
+constexpr DWORD kCameraVtable = 0x103E360, kCameraTarget = 9;
 
 // One AreaHit condition: if its player targets include the partner and not the player, retarget them.
 bool RetargetAreaHit(BYTE* cond) {
@@ -107,6 +114,22 @@ bool RetargetAreaHit(BYTE* cond) {
             At<int>(e, 8) = solo;
     }
     return true;
+}
+
+// A camera on the missing partner's view: show it on the player's instead.
+bool RetargetCamera(BYTE* param) {
+    auto& target = At<BYTE>(param, kCameraTarget);
+    if (target != PartnerSlot()) return false;
+    target = static_cast<BYTE>(SoloSlot());
+    return true;
+}
+
+bool TryRetargetCamera(BYTE* param) {
+    __try {
+        return RetargetCamera(param);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
 }
 
 bool TryRetarget(BYTE* cond) {  // its own guard: a stale match must not end the scan of its region
@@ -219,7 +242,7 @@ volatile LONG g_orderCount;
 // Nothing simple points to all level scripts, so scan private RW memory once per level: AreaHit lists (solo)
 // and, tracing, the level scripts themselves.
 void PatchLevelScripts() {
-    int found = 0, retargeted = 0;
+    int found = 0, retargeted = 0, cameras = 0;
     bool solo = !RecordMode() && SoloPlayer() && !Partner();
     MEMORY_BASIC_INFORMATION mbi;
     for (BYTE* a = reinterpret_cast<BYTE*>(0x10000); a < reinterpret_cast<BYTE*>(0x7FFE0000); a += mbi.RegionSize) {
@@ -234,6 +257,10 @@ void PatchLevelScripts() {
                     retargeted += TryRetarget(reinterpret_cast<BYTE*>(p + i));
                     continue;
                 }
+                if (p[i] == kCameraVtable && solo) {
+                    cameras += TryRetargetCamera(reinterpret_cast<BYTE*>(p + i));
+                    continue;
+                }
                 if (p[i] != kFsmTaskVtable || !TraceMode()) continue;
                 auto order = reinterpret_cast<BYTE*>(p[i + 6]);
                 if (order && !IsBadReadPtr(order, 4) && At<DWORD>(order, 0) == kLevelScriptVtable) {
@@ -246,6 +273,7 @@ void PatchLevelScripts() {
     }
     if (found) Log("trace: %d level scripts patched", found);
     if (retargeted) Log("scripts: %d zone check(s) that named only the partner now check the player", retargeted);
+    if (cameras) Log("scripts: %d camera(s) on the partner's view now use the player's", cameras);
 }
 
 HANDLE g_scanner;
