@@ -6,6 +6,12 @@
 // only counts on a second pull: it is set as soon as the player walks up to a lever of a pair, and mirrored
 // after a pull as a fallback. The fallback ignores the byte the mod set; read as a pull, it would mark the
 // player's own lever pulled early, and in 4-2 the pair then never powers the next lever.
+//
+// A lever whose own byte is set counts as pulled (by the player in +0x19A4), and the prompt check (0xC997B5)
+// will not let anyone else pull it. 3-3's pair (uOm08f3) stands 209 apart, so "mark the partner of every lever
+// in reach" marked both bytes before any pull: the player's lever was then taken and the power never came on.
+// Only the nearest lever's partner is marked, the mark moves if the player walks to the other one, and nothing
+// is touched once a real pull has set a byte.
 #include "objhook.h"
 #include "solo.h"
 
@@ -40,22 +46,32 @@ void LeverTick() {
     auto pulled = reinterpret_cast<volatile BYTE*>(kPulled);
     BYTE* player = SoloPlayer();
     if (player) {
+        BYTE* nearest = nullptr;
+        float best = kNear * kNear;
         for (int i = 0; i < g_count; ++i) {
             BYTE* lever = g_levers[i];
             float dx = At<float>(lever, 0x30) - At<float>(player, 0x30);
             float dz = At<float>(lever, 0x38) - At<float>(player, 0x38);
             float dy = At<float>(lever, 0x34) - At<float>(player, 0x34);
-            if (dx * dx + dz * dz > kNear * kNear || dy > 300 || dy < -300) continue;
-            int other = 1 - At<int>(lever, kIndex);
+            if (dy > 300 || dy < -300 || dx * dx + dz * dz > best) continue;
+            best = dx * dx + dz * dz;
+            nearest = lever;
+        }
+        bool realPull = (pulled[0] && g_marked != 0) || (pulled[1] && g_marked != 1);
+        if (nearest && !realPull) {
+            int own = At<int>(nearest, kIndex), other = 1 - own;
+            if (g_marked == own) pulled[own] = 0;  // walked over to the lever the mod had marked
             if (!pulled[other]) {
                 pulled[other] = 1;
                 g_marked = other;
-                Log("lever %p: player is near, partner lever %d marked pulled", lever, other);
+                Log("lever %p: player is near, partner lever %d marked pulled", nearest, other);
             }
         }
     }
     if (!pulled[0] && !pulled[1]) g_marked = -1;  // the game reset the pair
-    if (pulled[0] != pulled[1]) {  // fallback: a lever pulled away from the ones found
+    // Fallback: a lever pulled away from the ones found. Not while a pair is found: mirroring a real pull would
+    // set the other lever's own byte, and that lever could then no longer be pulled (3-3).
+    if (g_count == 0 && pulled[0] != pulled[1]) {
         int other = pulled[0] ? 1 : 0;
         if (1 - other == g_marked) return;  // only the mod's own mark is set: nobody has pulled yet
         pulled[other] = 1;
