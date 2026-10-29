@@ -207,8 +207,11 @@ Chris's knife keeps it loaded. With Chris removed, the game quits with "Failed o
 
 - **Zones** (`zones.cpp`): managers `[[0x11e8660]+0xd4+4i]` (count `+8`, list `+0x14`); zone `+4` =
   definition (`+0xc` 0 any / 1 all, `+0x3c` required bits), `+8` = state (`+0x10` players inside; bit 4 = any
-  player). Scripts use `AreaHit` (cFSMOrder vtbl `+0xb4`, `0xc340c0`) on "all of 0x13", which needs the
-  partner. The partner's bit is moved to the player in every "all of" requirement (every second).
+  player; `+0x18` its own copy of the requirement). Scripts use `AreaHit` (cFSMOrder vtbl `+0xb4`, `0xc340c0`)
+  on "all of 0x13", which needs the partner. The partner's bit is moved to the player in every "all of"
+  requirement, in both the definition and the state's copy (every second). Only the copy decides scenario
+  zones: the 3-1 dock checkpoint (`cScenarioArg_CHP`, which sets RSF 10 "on land") never fired as Sheva
+  while it still read 0x13, so the marsh crocodiles never came.
 - **Player scripts** (`script.cpp`): `cFSMOrderPlayer` (vtbl `0x1040c80`) at player `+0x1890`. `AreaHitPl`
   (`+0x184`, `0xc40830`) bails with no partner; the player is made his own partner for that call only.
   Forcing its result true takes the partner's branch instead.

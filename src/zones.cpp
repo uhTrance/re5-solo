@@ -2,7 +2,9 @@
 //
 // Level scripts test zones with AreaHit (cFSMOrder vtable +0xB4, 0xC340C0; mode 4 -> 0xCBFD50): zone +4 is
 // its definition (+0xC type: 0 = any of, 1 = all of; +0x3C required player bits), zone +8 its state (+0x10
-// bits of the players inside; bit 4 appears set for any player, e.g. slot 0 alone = 0x11). Co-op moments use
+// bits of the players inside, +0x18 its own copy of the requirement; bit 4 appears set for any player, e.g. slot 0
+// alone = 0x11). The game's setter (0xCBFDC0) writes both requirements, and the state's copy is the one that
+// decides scenario zones (the 3-1 dock checkpoint, which sets the flag the crocodiles wait for). Co-op moments use
 // "all of 0x13" (player 0, player 1, any), which never passes with one player (e.g. at the crank gate, the
 // checkpoint Flag and the second wave wait on such zones). Zones are data, so in solo the partner's bit is
 // moved to the player's in every "all of" requirement.
@@ -35,10 +37,15 @@ void ZoneTick() {
         for (DWORD z = 0; z < count; ++z) {
             auto def = zones[z] ? At<BYTE*>(zones[z], 4) : nullptr;
             if (!def || At<DWORD>(def, 0xC) != 1) continue;
-            auto& req = At<DWORD>(def, 0x3C);
-            if (!(req & partner)) continue;
-            req = (req & ~partner) | mine;
-            ++changed;
+            auto state = At<BYTE*>(zones[z], 8);
+            bool moved = false;
+            DWORD* reqs[] = {&At<DWORD>(def, 0x3C), state ? &At<DWORD>(state, 0x18) : nullptr};
+            for (DWORD* req : reqs) {
+                if (!req || !(*req & partner)) continue;
+                *req = (*req & ~partner) | mine;
+                moved = true;
+            }
+            changed += moved;
         }
     }
     if (changed) Log("zones: %d both-players zone(s) now need only the player", changed);
