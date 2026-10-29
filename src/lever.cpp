@@ -12,6 +12,11 @@
 // in reach" marked both bytes before any pull: the player's lever was then taken and the power never came on.
 // Only the nearest lever's partner is marked, the mark moves if the player walks to the other one, and nothing
 // is touched once a real pull has set a byte.
+//
+// The pull bytes are not all a level reads: 3-3's room controller (aS307, step +0x639 1) powers the belt levers
+// (flag 68) only once both levers' own state (+0x1970, read by vtable +0x194) is 1, and the lever the mod marked
+// never moved, so it stayed 0 and the power never came on. Once a lever of a pair is on and its partner's byte
+// is set, the partner's state is set to 1 too.
 #include "objhook.h"
 #include "solo.h"
 
@@ -20,6 +25,7 @@ namespace {
 constexpr DWORD kPulled = 0x1202040;  // BYTE[2]
 constexpr DWORD kSwitchDti = 0x1202048;  // uOmSwitch
 constexpr DWORD kIndex = 0x19A0, kPartner = 0x199C;
+constexpr DWORD kState = 0x1970;  // 1 = on
 constexpr float kNear = 400.0f;
 
 BYTE* g_levers[32];
@@ -69,6 +75,15 @@ void LeverTick() {
         }
     }
     if (!pulled[0] && !pulled[1]) g_marked = -1;  // the game reset the pair
+    for (int i = 0; i < g_count; ++i) {
+        BYTE* lever = g_levers[i];
+        BYTE* partner = At<BYTE*>(lever, kPartner);
+        if (At<BYTE>(lever, kState) != 1 || !partner || At<BYTE>(partner, kState) == 1) continue;
+        int other = At<int>(partner, kIndex);
+        if ((other != 0 && other != 1) || !pulled[other]) continue;
+        At<BYTE>(partner, kState) = 1;
+        Log("lever %p: on, partner lever %d set on too", lever, other);
+    }
     // Fallback: a lever pulled away from the ones found. Not while a pair is found: mirroring a real pull would
     // set the other lever's own byte, and that lever could then no longer be pulled (3-3).
     if (g_count == 0 && pulled[0] != pulled[1]) {
