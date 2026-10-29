@@ -153,6 +153,11 @@ Chris's knife keeps it loaded. With Chris removed, the game quits with "Failed o
   crank `+0x1a00`) follows the crank percent. While the player stands on the raft the crank is wound at
   11.5/s (Sheva's rate); off it, the vanilla unwind (~4.4/s) takes it back. The same class raises the bridge
   (links a `uOmFollow`, max 150); it is held at max once fully wound.
+- **3-1 marsh crocodiles as Sheva** (`croc.cpp`): `uEm66` waits in `cEm66ActAmbush` until its AI
+  (`uEmIntel66`, vtbl `0xf97460`, its own unit) picks a target. The AI's think (`+0x94`, `0x9b93d0`) runs
+  `0x9b7e70`, which only scans slots below the player count `[[0x11b27dc]+0x34]` (1 in solo), so it never
+  reached Sheva in slot 1. The AI gets a vtable copy whose think raises the count to reach the player's slot
+  for that call only. 62 places read the count; others may share the blind spot when playing as Sheva.
 - **Two-man levers** (`lever.cpp`, `uOmSwitch` pairs, e.g. 3-3 `uOm08f3`): index `+0x19a0` (0/1), partner
   `+0x199c`; a pull sets `0x1202040[index]`, the pair goes when both are set, checked at the pull. The
   partner's byte is set when the player walks up to a lever, plus a mirror after the pull as fallback (which

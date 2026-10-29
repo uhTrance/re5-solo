@@ -10,10 +10,32 @@
 //
 // Nothing points from the player to the crank, so it is found on the unit lists ([0x12340B0] = sUnit; move
 // line i at +0x20 + 0x20*i: +0xC first unit, +0x18 = i; units chain through +8).
+//
+// 3-1's marsh crocodiles (uEm66) hide in cEm66ActAmbush until their AI (uEmIntel66, vtable 0xF97460, a unit
+// of its own) finds a player to bite: its think (+0x94, 0x9B93D0) runs 0x9B7E70, which only looks at player
+// slots below the player count ([[0x11B27DC]+0x34], 1 in solo). As Sheva (slot 1) it never saw her, so the
+// crocodiles never came out. The AI gets a vtable copy whose think sees a count that reaches the player's
+// slot; the count is put back straight after (62 places read it, many of them not ready for an empty slot 0).
 #include "objhook.h"
 #include "solo.h"
 
 namespace {
+
+constexpr DWORD kIntelVtable = 0xF97460;  // uEmIntel66
+constexpr DWORD kThinkSlot = 0x94 / 4, kThink = 0x9B93D0;
+constexpr DWORD kPlayerCount = 0x34;      // in the player list
+
+void __fastcall Think(BYTE* self, void*) {
+    auto list = *reinterpret_cast<BYTE**>(kPlayerList);
+    DWORD need = SoloSlot() + 1;
+    if (!list || Partner() || At<DWORD>(list, kPlayerCount) >= need) return ThisCall(kThink, self);
+    DWORD count = At<DWORD>(list, kPlayerCount);
+    At<DWORD>(list, kPlayerCount) = need;
+    ThisCall(kThink, self);
+    At<DWORD>(list, kPlayerCount) = count;
+}
+
+void PatchIntel(DWORD* copy) { copy[kThinkSlot] = reinterpret_cast<DWORD>(&Think); }
 
 constexpr DWORD kCrankVtable = 0xFCCDA0;  // uOm08a6
 constexpr DWORD kRaftVtable = 0xFEBD00;   // uOm08a3
@@ -97,5 +119,7 @@ void CrocTick() {
                 if (c == u) c = nullptr;
             HookObject(u, kCrankVtable, AfterCrankUpdate);
         }
+        if (At<DWORD>(u, 0) == kIntelVtable && SoloSlot() != 0 && PatchObject(u, kIntelVtable, PatchIntel))
+            Log("crocodile AI %p: looks for the player in slot %d", u, SoloSlot());
     });
 }
