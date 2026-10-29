@@ -43,6 +43,7 @@ constexpr Setting kSettings[] = {
     {L"re5_solo_sheva.txt", L"Play as Sheva (Chris is removed instead)"},
     {L"re5_solo_record.txt", L"Vanilla co-op (the mod steps aside, Sheva's AI comes back)"},
     {L"re5_solo_nofilter.txt", L"Remove the colour filter (no green/yellow tint)"},
+    {L"re5_solo_120fps.txt", L"120fps fix (no getting stuck on scenery above 60 fps)"},
     {L"re5_solo_debug.txt", L"Debug keys (F9 / F10)"},
     {L"re5_solo_trace.txt", L"Script tracer (writes level-script steps to re5_solo.log)"},
 };

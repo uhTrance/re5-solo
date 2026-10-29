@@ -81,6 +81,7 @@ void AfterManagerUpdate(BYTE* manager) {
     BYTE* player = At<BYTE*>(manager, 0x24 + 4 * SoloSlot());
     if (player && At<BYTE>(player, kInPosition)) At<BYTE>(manager, kAllInPosition) = 1;
     if (player) SplitFrame(player);  // 4-1 separation (split.cpp)
+    LocalJoinFrame();                // no split screen (localjoin.cpp)
 }
 
 }  // namespace

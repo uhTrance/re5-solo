@@ -9,6 +9,9 @@ using AfterUpdate = void (*)(BYTE* object);
 // Hooks `object` if its vtable is `classVtable`; no-op if it is already hooked or a different class.
 bool HookObject(BYTE* object, DWORD classVtable, AfterUpdate after, DWORD updateSlot = 0x160);
 
+// Replaces one more slot (byte offset) in the HookObject copy `object` is on; false if it is not on one.
+bool PatchHookedSlot(BYTE* object, DWORD slot, DWORD fn);
+
 // Lower-level: give `object` a private copy of `classVtable` (one copy per class), which `patch` edits
 // once when the copy is made (replace any slots; originals stay readable at `classVtable`).
 bool PatchObject(BYTE* object, DWORD classVtable, void (*patch)(DWORD* copy));

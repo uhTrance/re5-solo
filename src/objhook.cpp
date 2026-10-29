@@ -58,7 +58,9 @@ bool IsHooked(BYTE* object, DWORD classVtable) {
 
 // The vtable pointer swap is one aligned dword write.
 bool HookObject(BYTE* object, DWORD classVtable, AfterUpdate after, DWORD updateSlot) {
-    if (!object || At<DWORD>(object, 0) != classVtable) return false;
+    // Only a game class: hooking one of our copies again would chain copies whose update calls itself.
+    if (!object || At<DWORD>(object, 0) != classVtable || classVtable < 0x400000 || classVtable >= 0x1928000)
+        return false;
     AcquireSRWLockExclusive(&g_lock);
     Hook* h = nullptr;
     for (LONG i = 0; i < g_count && !h; ++i)
@@ -82,6 +84,18 @@ bool HookObject(BYTE* object, DWORD classVtable, AfterUpdate after, DWORD update
     ReleaseSRWLockExclusive(&g_lock);
     Log("hooked object %p (class vtable %08X)", object, classVtable);
     return true;
+}
+
+// Replaces one more slot in the HookObject copy `object` already uses (no-op if it is not on one).
+bool PatchHookedSlot(BYTE* object, DWORD slot, DWORD fn) {
+    if (!object) return false;
+    AcquireSRWLockExclusive(&g_lock);
+    Hook* h = ByCopy(At<DWORD*>(object, 0));
+    bool changed = h && h->copy[slot / 4] != fn;
+    if (changed) h->copy[slot / 4] = fn;
+    ReleaseSRWLockExclusive(&g_lock);
+    if (changed) Log("hook %08X: slot +%lX replaced", h->classVtable, slot);
+    return h != nullptr;
 }
 
 namespace {

@@ -46,8 +46,13 @@ void FilterTick();
 void UroborosTick();
 void BackupTick();
 void InventoryTick();
+void PauseTick();
+void PlayerTick();  // snag.cpp: every player's vtable copy, the 120fps fix (also in record mode)
+
+void DeathAfterMove(BYTE* player);  // death.cpp, after each player's move (snag.cpp's hook)
 
 void SplitFrame(BYTE* player);      // split.cpp, every frame from gap.cpp's player-manager hook
+void LocalJoinFrame();              // localjoin.cpp, likewise
 extern volatile DWORD g_boxGoTick;  // box.cpp: when a co-op box last went
 
 // Pads (the loader's padhook.cpp calls the filters).

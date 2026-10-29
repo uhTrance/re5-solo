@@ -101,6 +101,17 @@ Marker files next to the exe (read when the core loads):
   `objhook.h`); every fix uses it rather than slot 0. `re5_solo_sheva.txt` holds the chosen-character field
   at 1 while no player exists.
 - Online join requests still arrive with slot 2 closed; they are left alone.
+- **No split screen** (`localjoin.cpp`): offline, a second pad pressing Start (switching between keyboard and
+  controller does it) drops in as player 2: `0x723460` books the join (`0x720ce0`) and the game scene restarts
+  with two local players, which crashed loading the area (`0x716c80` -> `0x768d0e`; the joinable slot,
+  `0xc42cb0`, is -1 with the partner out of the active mask). `0x723460` does nothing while session `+0x54`
+  (byte; only reader, cleared only by the session reset `0xc43a39`) is set, so the mod holds it at 1. Backups:
+  the pause manager (vtbl `0xfa821c`, scene `+0xe8`) keeps off its drop-out/join pages 7, 9, 10 (items are the
+  pages they open; offline `[1 2 5 3]`, 2/3 = Restart/Quit), and a partner bit in the local mask `+0x47c` is
+  dropped with `0x716720(0, slot, -1)` + `0x76b520`.
+- **Dying is game over** (`death.cpp`): lethal damage leaves HP (`+0x1364`) at 1 with a revive timer
+  (`+0x1bac`, seconds); with nobody to revive, the moment the solo player is dying the mod zeroes the timer and
+  starts game over with `0x76d9f0` on `[0x123457c]` (as instant kills do; no-op once `+0x2ff8` is set).
 - **The partner's loadout** (`inventory.cpp`): the stage record holds both 9-slot loadouts (11 entries of
   `0x2c`, id `+8`, count `+0xc`; Chris's block, Sheva's `0x420` later) in three copies, A `+0x23448` (the
   level's), B `+0x249d8`, C `+0x27618` (Item Management's Ready). A chapter load empties both blocks in A,
@@ -303,6 +314,22 @@ Chris's knife keeps it loaded. With Chris removed, the game quits with "Failed o
   within a frame; the mod's vtable copy clears them inside +0x18, before the original runs.
 - New areas' filters are hooked within 100 ms. `sLightLinker::ViewFilter` +7 (`mEnableColorCorrect`) does nothing
   visible.
+
+## 120fps fix option (`snag.cpp`, `re5_solo_120fps.txt`)
+
+- Above 60 fps a player could get stuck for good on some spots (never at 60/30). Each frame the move
+  (`0xb58840`) saves the position (`+0x1060`), applies the motion (`+0x1050` = the result), projects the step
+  onto the ground (vtable `+0xd8`, `0xb6a670`, the same in all 32 player classes) and runs the collision passes
+  (`+0x3c`/`+0x40` -> `0x588230`/`0x58b340`, no frame-time reads). On the snag spots the collision put the
+  player back exactly at `+0x1060` every frame; at 120 fps the step is half as long and lands in the same
+  rejected place each time (logged by a per-frame recorder: start never moves while the step is 3-4 units).
+- Fix: in every player's vtable copy, once a player has been put back to the same start two frames running
+  while moving, `+0xd8` gets the step 60 fps would take (x `1/60 s / frame time`, at most 4) before the
+  original runs; the game's collision still decides where the player ends up. Never acts at 60 fps or below.
+  Verified: freed a live snag at (-2003, 255, -1876) on the first try. Works in vanilla co-op too, and as a
+  standalone mod (`re5-120fps-fix`).
+- `snag.cpp` also owns the players' vtable copies (HookObject on `+0x1c`, every slot): `death.cpp` runs after
+  the move through it.
 
 ## Known issues and unconfirmed
 

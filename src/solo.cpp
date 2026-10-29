@@ -29,6 +29,7 @@ constexpr DWORD kSoloFlag = 0x80000;
 void Tick() {
     FilterTick();  // an option of its own, also in vanilla co-op
     BackupTick();  // also in record mode
+    PlayerTick();  // likewise (the 120fps fix)
     if (RecordMode()) {  // vanilla co-op, only watch the jumps
         RecordTick();
         ScriptTick();
@@ -70,6 +71,7 @@ void Tick() {
     NdesuTick();
     EnemyHpTick();
     WeskerTick();
+    PauseTick();
     DebugTick();
     ScriptTick();
     ZoneTick();
