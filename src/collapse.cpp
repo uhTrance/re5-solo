@@ -21,6 +21,12 @@
 // slot fails. Solo the partner's slot fails (+0x17FC = 1) and the chase takes its death branch (5 instead of
 // co-op's 6) and hangs, with no "You died". So that update runs with the solo player standing in for the
 // partner (slot filled, bits copied): the partner passes exactly when the player does.
+//
+// Its scripted acts (cActAct, vtable 0x100CD90, update 0xB23020) and the prompt wait for +0x10ED, which only
+// the actor action in role 0 sets once its motion ends (cActActorAct 0x100CDC4, update 0xB23200; cActActorAB
+// 0x100CDFC, 0xB235B0; +0x20 = the player's slot). Playing Sheva, slot 0 is empty and the chase froze at its
+// first act. So when the player's own actor action for this chase and act (+0x10) has finished its motion
+// (+0x14), the chase's flag is set for the missing role 0.
 #include "objhook.h"
 #include "solo.h"
 
@@ -122,8 +128,26 @@ void __fastcall PromptUpdate(BYTE* action, void*, BYTE* uro) {
     if (fill) *partner = nullptr;
 }
 
+constexpr DWORD kActorVtable = 0x100CDC4, kActorABVtable = 0x100CDFC;  // cActActorAct, cActActorAB
+constexpr DWORD kActDone = 0x10ED;
+
+// The role 0 actor reports an act's motion done; without a player in slot 0 the player's actor does.
+void ReportActDone(BYTE* uro) {
+    if (SoloSlot() == 0 || PlayerAt(0) || At<BYTE>(uro, kActDone)) return;
+    BYTE* player = SoloPlayer();
+    BYTE* actor = player ? At<BYTE*>(player, kUroAction) : nullptr;
+    DWORD vt = actor ? At<DWORD>(actor, 0) : 0;
+    if ((vt != kActorVtable && vt != kActorABVtable) || At<BYTE*>(actor, 0xC) != uro) return;
+    // The act number (+0x10): for a frame after an act starts the player still has the last act's actor, done.
+    if (At<int>(actor, 0x10) != At<int>(At<BYTE*>(uro, kUroAction), 0x10)) return;
+    if (At<BYTE>(actor, 0x20) != SoloSlot() || !At<BYTE>(actor, 0x14)) return;
+    At<BYTE>(uro, kActDone) = 1;
+    Log("uro chase %p: act %d motion done, reported for the empty slot 0", uro, At<int>(At<BYTE*>(uro, kUroAction), 0x10));
+}
+
 void AfterUroUpdate(BYTE* uro) {
     BYTE* action = At<BYTE*>(uro, kUroAction);
+    if (action) ReportActDone(uro);
     if (!action || At<DWORD>(action, 0) != kPromptVtable) return;
     if (!g_promptVtable[0]) {
         memcpy(g_promptVtable, reinterpret_cast<void*>(kPromptVtable), sizeof g_promptVtable);
