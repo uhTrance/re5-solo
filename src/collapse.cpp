@@ -27,6 +27,10 @@
 // 0x100CDFC, 0xB235B0; +0x20 = the player's slot). Playing Sheva, slot 0 is empty and the chase froze at its
 // first act. So when the player's own actor action for this chase and act (+0x10) has finished its motion
 // (+0x14), the chase's flag is set for the missing role 0.
+//
+// Its last act (cActEnd, vtable 0x100CE34, update +0x30, 0xB237E0) times the ending on getPlayer(0) and then
+// moves the game on (scene 0x1F8); with slot 0 empty it returned at once every frame and the game froze at the
+// end of the chase. That update runs with the solo player in slot 0.
 #include "objhook.h"
 #include "solo.h"
 
@@ -128,6 +132,20 @@ void __fastcall PromptUpdate(BYTE* action, void*, BYTE* uro) {
     if (fill) *partner = nullptr;
 }
 
+constexpr DWORD kEndVtable = 0x100CE34;  // uOma00c_UroAction::cActEnd (update +0x30, like the prompt)
+
+DWORD g_endVtable[kPromptSlots];
+BYTE* g_ends[16];                        // end actions given our vtable (restored on unload)
+
+void __fastcall EndUpdate(BYTE* action, void*, BYTE* uro) {
+    auto list = *reinterpret_cast<BYTE**>(kPlayerList);
+    BYTE** slot0 = list ? reinterpret_cast<BYTE**>(list + 0x24) : nullptr;
+    bool fill = slot0 && !*slot0 && SoloPlayer();
+    if (fill) *slot0 = SoloPlayer();
+    ThisCall(reinterpret_cast<DWORD*>(kEndVtable)[kPromptUpdate / 4], action, uro);
+    if (fill) *slot0 = nullptr;
+}
+
 constexpr DWORD kActorVtable = 0x100CDC4, kActorABVtable = 0x100CDFC;  // cActActorAct, cActActorAB
 constexpr DWORD kActDone = 0x10ED;
 
@@ -148,6 +166,17 @@ void ReportActDone(BYTE* uro) {
 void AfterUroUpdate(BYTE* uro) {
     BYTE* action = At<BYTE*>(uro, kUroAction);
     if (action) ReportActDone(uro);
+    if (action && At<DWORD>(action, 0) == kEndVtable && SoloSlot() != 0) {
+        if (!g_endVtable[0]) {
+            memcpy(g_endVtable, reinterpret_cast<void*>(kEndVtable), sizeof g_endVtable);
+            g_endVtable[kPromptUpdate / 4] = reinterpret_cast<DWORD>(&EndUpdate);
+        }
+        At<DWORD>(action, 0) = reinterpret_cast<DWORD>(g_endVtable);
+        static int next;
+        g_ends[next++ % 16] = action;
+        Log("uro chase %p: ending %p times itself on the player in slot 0", uro, action);
+        return;
+    }
     if (!action || At<DWORD>(action, 0) != kPromptVtable) return;
     if (!g_promptVtable[0]) {
         memcpy(g_promptVtable, reinterpret_cast<void*>(kPromptVtable), sizeof g_promptVtable);
@@ -176,6 +205,8 @@ void CollapseShutdown() {
         Restore(reinterpret_cast<DWORD*>(action), reinterpret_cast<DWORD>(g_runVtable), kRunVtable);
     for (BYTE* action : g_prompts)
         Restore(reinterpret_cast<DWORD*>(action), reinterpret_cast<DWORD>(g_promptVtable), kPromptVtable);
+    for (BYTE* action : g_ends)
+        Restore(reinterpret_cast<DWORD*>(action), reinterpret_cast<DWORD>(g_endVtable), kEndVtable);
 }
 
 // Watcher thread: hook every collapse event and Uroboros chase in the unit lists (a hooked one no longer passes IsA).
