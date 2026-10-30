@@ -31,6 +31,10 @@
 // Its last act (cActEnd, vtable 0x100CE34, update +0x30, 0xB237E0) times the ending on getPlayer(0) and then
 // moves the game on (scene 0x1F8); with slot 0 empty it returned at once every frame and the game froze at the
 // end of the chase. That update runs with the solo player in slot 0.
+//
+// Playing Sheva, the camera still followed an empty slot 0, so solo.cpp now spawns a hidden Chris for area 503
+// (PartnerArea) and the chase runs as the normal one-player game. The Sheva paths above only act while slot 0
+// is empty, so they stay as a fallback and do nothing while he is there.
 #include "objhook.h"
 #include "solo.h"
 

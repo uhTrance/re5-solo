@@ -30,8 +30,18 @@ constexpr DWORD kPlatformStep = 0x74FA30;
 
 using Callback = int(__cdecl*)(BYTE* param);
 
-BYTE* g_wrapped[8];  // zones given PlatformStep, put back by ZoneShutdown
-int g_wrappedCount;
+// Every zone in the area root's scenario lists (the only zones whose callbacks the game runs, 0x7F09C0).
+template <class F>
+void ForEachScenarioZone(BYTE* root, F fn) {
+    for (int i = 0; i < kScenarioLists; ++i) {
+        BYTE* list = root + 0x24 + 0x14 * i;
+        DWORD count = At<DWORD>(list, 0);
+        auto zones = At<BYTE**>(list, 0xC);
+        if (!zones || count > 512) continue;
+        for (DWORD z = 0; z < count; ++z)
+            if (zones[z]) fn(zones[z]);
+    }
+}
 
 int __cdecl PlatformStep(BYTE* param) {
     auto original = reinterpret_cast<Callback>(kPlatformStep);
@@ -75,27 +85,30 @@ void ZoneTick() {
         }
     }
     if (changed) Log("zones: %d both-players zone(s) now need only the player", changed);
-    for (int i = 0; i < kScenarioLists; ++i) {
-        BYTE* list = root + 0x24 + 0x14 * i;
-        DWORD count = At<DWORD>(list, 0);
-        auto zones = At<BYTE**>(list, 0xC);
-        if (!zones || count > 512) continue;
-        for (DWORD z = 0; z < count; ++z) {
-            if (!zones[z] || At<DWORD>(zones[z], kCallback) != kPlatformStep) continue;
-            At<DWORD>(zones[z], kCallback) = reinterpret_cast<DWORD>(&PlatformStep);
-            if (g_wrappedCount < 8) g_wrapped[g_wrappedCount++] = zones[z];
-            Log("zones: 5-3 platform callback wrapped (the partner's slot is filled for its player check)");
-        }
-    }
+    ForEachScenarioZone(root, [](BYTE* zone) {
+        if (At<DWORD>(zone, kCallback) != kPlatformStep) return;
+        At<DWORD>(zone, kCallback) = reinterpret_cast<DWORD>(&PlatformStep);
+        Log("zones: 5-3 platform callback wrapped (the partner's slot is filled for its player check)");
+    });
 }
 
-// CoreShutdown: nothing may keep pointing into this DLL (a zone since freed no longer holds the wrapper).
+namespace {
+
+void UnwrapZones() {
+    auto root = *reinterpret_cast<BYTE**>(kAreaRoot);
+    if (!root) return;
+    ForEachScenarioZone(root, [](BYTE* zone) {
+        if (At<DWORD>(zone, kCallback) == reinterpret_cast<DWORD>(&PlatformStep)) At<DWORD>(zone, kCallback) = kPlatformStep;
+    });
+}
+
+}  // namespace
+
+// CoreShutdown: nothing may keep pointing into this DLL. The game only runs callbacks of zones in the scenario
+// lists, so every zone there still holding the wrapper gets the platform step back (none are tracked: a 5-3
+// retry builds new zones each time, and a fixed list of them ran out).
 void ZoneShutdown() {
-    for (int i = 0; i < g_wrappedCount; ++i) {
-        __try {
-            if (At<DWORD>(g_wrapped[i], kCallback) == reinterpret_cast<DWORD>(&PlatformStep))
-                At<DWORD>(g_wrapped[i], kCallback) = kPlatformStep;
-        } __except (EXCEPTION_EXECUTE_HANDLER) {}
-    }
-    g_wrappedCount = 0;
+    __try {
+        UnwrapZones();
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }

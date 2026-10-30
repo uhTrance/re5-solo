@@ -34,7 +34,8 @@ constexpr DWORD kPartnerArea = 503;
 
 bool PartnerArea() {
     BYTE* stage = Stage();
-    return SoloSlot() == 1 && stage && At<DWORD>(stage, kStageArea) == kPartnerArea;
+    // Not in record mode: there Chris is a real co-op player, and parking or hiding him would break the game.
+    return !RecordMode() && SoloSlot() == 1 && stage && At<DWORD>(stage, kStageArea) == kPartnerArea;
 }
 
 // There Chris is not drawn: units draw through vtable +0x24 (0x8300A0 for players, weapons and items), so his
@@ -93,9 +94,8 @@ void HideUnit(BYTE* unit) {
 
 void HidePartnerTick() {
     static DWORD hiddenClass;
-    BYTE* chris = PartnerArea() ? Partner() : nullptr;
-    g_hiddenChris = chris;
-    if (!chris) {
+    if (!PartnerArea()) {
+        g_hiddenChris = nullptr;
         if (hiddenClass) {
             RestoreHookedSlot(hiddenClass, kDrawSlot);
             Log("partner: Chris's class %08lX draws again", hiddenClass);
@@ -103,6 +103,11 @@ void HidePartnerTick() {
         }
         return;
     }
+    // Not spawned yet, or out of the player list for a moment (a cockpit call, WithoutChris): keep things as
+    // they are rather than draw him again for a frame.
+    BYTE* chris = Partner();
+    if (!chris) return;
+    g_hiddenChris = chris;
     if (DWORD cls = HookedClass(chris); cls && cls != hiddenClass) {
         PatchHookedSlot(chris, kDrawSlot, reinterpret_cast<DWORD>(&NoDraw));
         hiddenClass = cls;
@@ -224,12 +229,16 @@ void PartnerAfterMove(BYTE* player) {
     if (player != parked) {
         parked = player;
         park[0] = At<float>(player, 0x30);
-        park[1] = At<float>(player, 0x34) + kParkHeight;
+        // Above the player, not above Chris: after a hot reload he is already parked, and his own height
+        // would put him another 200 m up each time.
+        BYTE* me = PlayerAt(SoloSlot());
+        park[1] = (me ? At<float>(me, 0x34) : At<float>(player, 0x34)) + kParkHeight;
         park[2] = At<float>(player, 0x38);
         Log("partner: Chris %p parked out of the way until the chase starts", player);
     }
     if (At<DWORD>(stage, kStageScene) < kChaseScene) {
         PlaceAt(player, park[0], park[1], park[2]);
+        setDown = nullptr;  // a retry's new Chris can have the old one's address
     } else if (setDown != player) {
         setDown = player;
         if (BYTE* me = PlayerAt(SoloSlot()))

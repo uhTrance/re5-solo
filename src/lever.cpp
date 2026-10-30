@@ -79,6 +79,8 @@ void LeverTick() {
         BYTE* lever = g_levers[i];
         BYTE* partner = At<BYTE*>(lever, kPartner);
         if (At<BYTE>(lever, kState) != 1 || !partner || At<BYTE>(partner, kState) == 1) continue;
+        // The list is a second old at most: write only to a live lever pair (the partner links back).
+        if (!IsA(lever, kSwitchDti) || !IsA(partner, kSwitchDti) || At<BYTE*>(partner, kPartner) != lever) continue;
         int other = At<int>(partner, kIndex);
         if ((other != 0 && other != 1) || !pulled[other]) continue;
         At<BYTE>(partner, kState) = 1;

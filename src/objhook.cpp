@@ -123,8 +123,11 @@ void RestoreHookedSlot(DWORD classVtable, DWORD slot) {
 
 namespace {
 
+// One copy per class and patch: the 6-2 hiding patches whatever model classes are handed to Chris, which must
+// not pick up (or hand out) another module's copy of the same class.
 struct Patched {
     DWORD classVtable;
+    void (*patch)(DWORD* copy);
     DWORD copy[kVtableCopy];
 };
 constexpr LONG kMaxPatched = 24;  // 8 ran short once the 6-2 chase hid Chris's weapons and items
@@ -138,14 +141,17 @@ bool PatchObject(BYTE* object, DWORD classVtable, void (*patch)(DWORD* copy)) {
     AcquireSRWLockExclusive(&g_lock);
     Patched* p = nullptr;
     for (LONG i = 0; i < g_patchedCount && !p; ++i)
-        if (g_patched[i].classVtable == classVtable) p = &g_patched[i];
+        if (g_patched[i].classVtable == classVtable && g_patched[i].patch == patch) p = &g_patched[i];
     if (!p) {
         if (g_patchedCount == kMaxPatched) {
             ReleaseSRWLockExclusive(&g_lock);
+            static LONG warned;
+            if (!InterlockedExchange(&warned, 1)) Log("patch table full (%ld copies): class %08X not patched", kMaxPatched, classVtable);
             return false;
         }
         p = &g_patched[g_patchedCount++];
         p->classVtable = classVtable;
+        p->patch = patch;
         memcpy(p->copy, reinterpret_cast<void*>(classVtable), sizeof p->copy);
         patch(p->copy);
     }
