@@ -26,6 +26,52 @@ constexpr DWORD kActiveMask = 0x478;
 constexpr DWORD kGameFlags = 0x10434;
 constexpr DWORD kSoloFlag = 0x80000;
 
+// 6-2's Uroboros chase (area 503) is staged for two players throughout: its acts, prompts and ending key on
+// slot 0, and its camera on the pair. Playing as Sheva the partner's slot is left open there, so the game spawns
+// Chris as the AI partner for that area and the chase runs as in the normal one-player game.
+constexpr DWORD kStageArea = 0x273D8;
+constexpr DWORD kPartnerArea = 503;
+
+bool PartnerArea() {
+    BYTE* stage = Stage();
+    return SoloSlot() == 1 && stage && At<DWORD>(stage, kStageArea) == kPartnerArea;
+}
+
+// There Chris is not drawn: units draw through vtable +0x24 (0x8300A0 for players, weapons and items), so his
+// player class's hook copy (the 120fps fix put him on one) and a private copy for each unit in his inventory
+// slots (9 of 0x30 from +0x21D0) get a draw that does nothing. His class copy is put back outside that area,
+// where a Chris could be the player.
+constexpr DWORD kDrawSlot = 0x24;
+constexpr DWORD kInventory = 0x21D0, kInventoryStride = 0x30;
+constexpr int kInventorySlots = 9;
+
+void __fastcall NoDraw(void*, void*, void*) {}
+
+void NoDrawPatch(DWORD* copy) { copy[kDrawSlot / 4] = reinterpret_cast<DWORD>(&NoDraw); }
+
+void HidePartnerTick() {
+    static DWORD hiddenClass;
+    BYTE* chris = PartnerArea() ? Partner() : nullptr;
+    if (!chris) {
+        if (hiddenClass) {
+            RestoreHookedSlot(hiddenClass, kDrawSlot);
+            Log("partner: Chris's class %08lX draws again", hiddenClass);
+            hiddenClass = 0;
+        }
+        return;
+    }
+    if (DWORD cls = HookedClass(chris); cls && cls != hiddenClass) {
+        PatchHookedSlot(chris, kDrawSlot, reinterpret_cast<DWORD>(&NoDraw));
+        hiddenClass = cls;
+        Log("partner: Chris %p hidden", chris);
+    }
+    for (int i = 0; i < kInventorySlots; ++i) {
+        BYTE* unit = At<BYTE*>(chris, kInventory + kInventoryStride * i);
+        DWORD vt = unit ? At<DWORD>(unit, 0) : 0;
+        if (vt >= 0x400000 && vt < 0x1928000) PatchObject(unit, vt, NoDrawPatch);  // ours already: skipped
+    }
+}
+
 void Tick() {
     FilterTick();  // an option of its own, also in vanilla co-op
     BackupTick();  // also in record mode
@@ -42,9 +88,17 @@ void Tick() {
     ShevaTick();
     auto mask = reinterpret_cast<volatile LONG*>(info + kActiveMask);
     LONG partnerBit = 1 << PartnerSlot();
-    if (*mask & partnerBit) {
+    BYTE* stage = Stage();
+    DWORD area = stage ? At<DWORD>(stage, kStageArea) : 0;
+    if (PartnerArea()) {
+        static DWORD logged;
+        if (logged != area && (*mask & partnerBit)) {
+            logged = area;
+            Log("partner slot %d left open in area %lu (the 6-2 chase needs Chris)", PartnerSlot(), area);
+        }
+    } else if (*mask & partnerBit) {
         LONG before = InterlockedAnd(mask, ~partnerBit);
-        Log("partner slot %d closed (mask %X -> %X)", PartnerSlot(), before, *mask);
+        Log("partner slot %d closed (mask %X -> %X, area %lu)", PartnerSlot(), before, *mask, area);
     }
     // The game rewrites its flags on some state changes, so re-apply while only the player's slot is open.
     auto flags = reinterpret_cast<volatile LONG*>(game + kGameFlags);
@@ -52,6 +106,7 @@ void Tick() {
         InterlockedOr(flags, kSoloFlag);
         Log("solo flag set (flags now %08X)", *flags);
     }
+    HidePartnerTick();
     BoatTick();
     GapTick();
     UroborosTick();

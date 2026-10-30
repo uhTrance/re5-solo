@@ -102,13 +102,33 @@ bool PatchHookedSlot(BYTE* object, DWORD slot, DWORD fn) {
     return h != nullptr;
 }
 
+DWORD HookedClass(BYTE* object) {
+    if (!object) return 0;
+    AcquireSRWLockShared(&g_lock);
+    Hook* h = ByCopy(At<DWORD*>(object, 0));
+    DWORD cls = h ? h->classVtable : 0;
+    ReleaseSRWLockShared(&g_lock);
+    return cls;
+}
+
+void RestoreHookedSlot(DWORD classVtable, DWORD slot) {
+    AcquireSRWLockExclusive(&g_lock);
+    for (LONG i = 0; i < g_count; ++i)
+        if (g_hooks[i].classVtable == classVtable) {
+            DWORD original = reinterpret_cast<DWORD*>(classVtable)[slot / 4];
+            if (slot / 4 != g_hooks[i].slot) g_hooks[i].copy[slot / 4] = original;
+        }
+    ReleaseSRWLockExclusive(&g_lock);
+}
+
 namespace {
 
 struct Patched {
     DWORD classVtable;
     DWORD copy[kVtableCopy];
 };
-Patched g_patched[8];
+constexpr LONG kMaxPatched = 24;  // 8 ran short once the 6-2 chase hid Chris's weapons and items
+Patched g_patched[kMaxPatched];
 LONG g_patchedCount;
 
 }  // namespace
@@ -120,7 +140,7 @@ bool PatchObject(BYTE* object, DWORD classVtable, void (*patch)(DWORD* copy)) {
     for (LONG i = 0; i < g_patchedCount && !p; ++i)
         if (g_patched[i].classVtable == classVtable) p = &g_patched[i];
     if (!p) {
-        if (g_patchedCount == 8) {
+        if (g_patchedCount == kMaxPatched) {
             ReleaseSRWLockExclusive(&g_lock);
             return false;
         }

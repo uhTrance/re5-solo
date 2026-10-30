@@ -12,6 +12,10 @@ bool HookObject(BYTE* object, DWORD classVtable, AfterUpdate after, DWORD update
 // Replaces one more slot (byte offset) in the HookObject copy `object` is on; false if it is not on one.
 bool PatchHookedSlot(BYTE* object, DWORD slot, DWORD fn);
 
+// The class whose HookObject copy `object` is on (0 if none), and putting one of its slots back.
+DWORD HookedClass(BYTE* object);
+void RestoreHookedSlot(DWORD classVtable, DWORD slot);
+
 // Lower-level: give `object` a private copy of `classVtable` (one copy per class), which `patch` edits
 // once when the copy is made (replace any slots; originals stay readable at `classVtable`).
 bool PatchObject(BYTE* object, DWORD classVtable, void (*patch)(DWORD* copy));
