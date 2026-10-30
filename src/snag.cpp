@@ -81,6 +81,7 @@ void __fastcall Project(BYTE* player, void*) {
 void AfterPlayerMove(BYTE* player) {
     DeathAfterMove(player);
     PartnerAfterMove(player);
+    VolcanoAfterMove(player);
 }
 
 }  // namespace

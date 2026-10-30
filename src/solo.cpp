@@ -50,6 +50,7 @@ void __fastcall NoDraw(void*, void*, void*) {}
 void NoDrawPatch(DWORD* copy) { copy[kDrawSlot / 4] = reinterpret_cast<DWORD>(&NoDraw); }
 
 constexpr DWORD kParent = 0x18;
+constexpr DWORD kWeaponPanel = 0x2650, kWeaponPanelVtable = 0xFACED4;
 constexpr DWORD kModelDraw = 0x8300A0;  // +0x24 of models; other units' +0x24 is something else
 
 // The HUD: each player has a cockpit (uIdCockpit00, its player at +0x1A0). Its update (+0x18, 0x9F8FC0) re-fills
@@ -108,6 +109,9 @@ void HidePartnerTick() {
         Log("partner: Chris %p hidden", chris);
     }
     for (int i = 0; i < kInventorySlots; ++i) HideUnit(At<BYTE*>(chris, kInventory + kInventoryStride * i));
+    // His own weapon panel (uIdWpSlot00 at +0x2650) still showed, reading "EMPTY".
+    if (BYTE* panel = At<BYTE*>(chris, kWeaponPanel); panel && PatchObject(panel, kWeaponPanelVtable, NoDrawPatch))
+        Log("partner: Chris's weapon panel %p hidden", panel);
     // Scripted props he is handed (the handgun at the chase start, a uWp02 kept idle at the origin until then)
     // name him as their parent (+0x18), as his inventory units do.
     static DWORD lastScan;

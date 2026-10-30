@@ -47,7 +47,40 @@ void AfterWeskerUpdate(BYTE* wesker) {
     }
 }
 
+// The volcano (area 508): at scene 11625 a cutscene splits the pair, Chris down onto the lava rocks (1543, -300,
+// -1824) where the fight goes on, Sheva up onto a ledge (1436, 292, -2994) to wait for him to save her. Playing
+// as Sheva nobody is below, so whenever she turns up on that ledge from then on, she is moved to Chris's spot.
+constexpr DWORD kStageArea = 0x273D8, kStageScene = 0x273E0;
+constexpr DWORD kVolcano = 508, kSplitScene = 11625;
+constexpr float kLedge[3] = {1436.0f, 292.0f, -2994.0f};
+constexpr float kChrisSpot[3] = {1543.0f, -300.0f, -1824.0f};
+constexpr float kChrisFacing[2] = {0.545f, 0.839f};  // rotation quaternion y, w (+0x44, +0x4C)
+constexpr float kOnLedge = 400.0f;
+constexpr DWORD kPositionCopies[] = {0x30,  0x90,  0xD0,  0x110,  0x1050, 0x1060, 0x10B0,
+                                     0x1170, 0x11D0, 0x1370, 0x1380, 0x1390, 0x13A0, 0x1B10};
+
+bool OnLedge(BYTE* player) {
+    float dx = At<float>(player, 0x30) - kLedge[0], dy = At<float>(player, 0x34) - kLedge[1];
+    float dz = At<float>(player, 0x38) - kLedge[2];
+    return dx * dx + dy * dy + dz * dz < kOnLedge * kOnLedge;
+}
+
 }  // namespace
+
+// After each player's move (snag.cpp's hook, game thread).
+void VolcanoAfterMove(BYTE* player) {
+    BYTE* stage = Stage();
+    if (!stage || SoloSlot() != 1 || player != SoloPlayer() || Partner()) return;
+    if (At<DWORD>(stage, kStageArea) != kVolcano || At<DWORD>(stage, kStageScene) < kSplitScene || !OnLedge(player))
+        return;
+    for (DWORD off : kPositionCopies)
+        for (int i = 0; i < 3; ++i) At<float>(player, off + 4 * i) = kChrisSpot[i];
+    At<float>(player, 0x40) = 0.0f;
+    At<float>(player, 0x44) = kChrisFacing[0];
+    At<float>(player, 0x48) = 0.0f;
+    At<float>(player, 0x4C) = kChrisFacing[1];
+    Log("volcano: Sheva put down where Chris fights (the split sent her up to the ledge)");
+}
 
 // Watcher thread: once a second, hook any Wesker (first-phase classes) on the unit lists.
 void WeskerTick() {
