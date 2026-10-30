@@ -48,6 +48,7 @@ extern "C" __declspec(dllexport) void CoreShutdown() {
     BoatShutdown();
     CollapseShutdown();
     VoiceShutdown();
+    ZoneShutdown();
     RestoreHookedObjects();
     Log("core: shut down");
 }

@@ -17,6 +17,7 @@ void DebugShutdown();
 void BoatShutdown();
 void CollapseShutdown();
 void VoiceShutdown();
+void ZoneShutdown();
 void RestoreHookedObjects();  // objhook.cpp
 
 // Watcher thread, every tick (solo.cpp).
