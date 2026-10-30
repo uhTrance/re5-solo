@@ -52,6 +52,37 @@ void NoDrawPatch(DWORD* copy) { copy[kDrawSlot / 4] = reinterpret_cast<DWORD>(&N
 constexpr DWORD kParent = 0x18;
 constexpr DWORD kModelDraw = 0x8300A0;  // +0x24 of models; other units' +0x24 is something else
 
+// The HUD: each player has a cockpit (uIdCockpit00, its player at +0x1A0). Its update (+0x18, 0x9F8FC0) re-fills
+// the partner's entry (+0x1A4, 0x9ED920) with the player's partner (0xB5BED0) if the player list holds him
+// (0x7E6370), and then lays out his gauge too. So the player's cockpit updates and draws with Chris out of the
+// list for that call, and Chris's own cockpit does neither.
+constexpr DWORD kCockpitVtable = 0xF9E480, kCockpitOwner = 0x1A0, kCockpitUpdate = 0x18;
+BYTE* volatile g_hiddenChris;
+
+// Runs cockpit slot `slot` without the hidden Chris in the player list (skipped for his own cockpit).
+template <class... A>
+void WithoutChris(BYTE* cockpit, DWORD slot, A... args) {
+    DWORD fn = reinterpret_cast<DWORD*>(kCockpitVtable)[slot / 4];
+    BYTE* chris = g_hiddenChris;
+    auto list = *reinterpret_cast<BYTE**>(kPlayerList);
+    if (!chris || !list) return ThisCall(fn, cockpit, args...);
+    if (At<BYTE*>(cockpit, kCockpitOwner) == chris) return;
+    BYTE** entry = nullptr;
+    for (int i = 0; i < 4 && !entry; ++i)
+        if (At<BYTE*>(list, 0x24 + 4 * i) == chris) entry = &At<BYTE*>(list, 0x24 + 4 * i);
+    if (entry) *entry = nullptr;
+    ThisCall(fn, cockpit, args...);
+    if (entry) *entry = chris;
+}
+
+void __fastcall CockpitUpdate(BYTE* cockpit, void*) { WithoutChris(cockpit, kCockpitUpdate); }
+void __fastcall CockpitDraw(BYTE* cockpit, void*, void* context) { WithoutChris(cockpit, kDrawSlot, context); }
+
+void CockpitPatch(DWORD* copy) {
+    copy[kCockpitUpdate / 4] = reinterpret_cast<DWORD>(&CockpitUpdate);
+    copy[kDrawSlot / 4] = reinterpret_cast<DWORD>(&CockpitDraw);
+}
+
 // Gives a model unit a private vtable copy that draws nothing (ours already, or not a model: skipped).
 void HideUnit(BYTE* unit) {
     DWORD vt = unit ? At<DWORD>(unit, 0) : 0;
@@ -62,6 +93,7 @@ void HideUnit(BYTE* unit) {
 void HidePartnerTick() {
     static DWORD hiddenClass;
     BYTE* chris = PartnerArea() ? Partner() : nullptr;
+    g_hiddenChris = chris;
     if (!chris) {
         if (hiddenClass) {
             RestoreHookedSlot(hiddenClass, kDrawSlot);
@@ -83,6 +115,8 @@ void HidePartnerTick() {
     lastScan = GetTickCount();
     ForEachUnit([chris](BYTE* unit) {
         if (At<BYTE*>(unit, kParent) == chris) HideUnit(unit);
+        if (At<DWORD>(unit, 0) == kCockpitVtable && PatchObject(unit, kCockpitVtable, CockpitPatch))
+            Log("partner: HUD cockpit %p draws without Chris", unit);
     });
 }
 
