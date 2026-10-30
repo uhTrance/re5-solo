@@ -78,7 +78,10 @@ void __fastcall Project(BYTE* player, void*) {
     ThisCall(kProject, player);
 }
 
-void AfterPlayerMove(BYTE* player) { DeathAfterMove(player); }
+void AfterPlayerMove(BYTE* player) {
+    DeathAfterMove(player);
+    PartnerAfterMove(player);
+}
 
 }  // namespace
 

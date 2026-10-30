@@ -51,6 +51,7 @@ void PauseTick();
 void PlayerTick();  // snag.cpp: every player's vtable copy, the 120fps fix (also in record mode)
 
 void DeathAfterMove(BYTE* player);  // death.cpp, after each player's move (snag.cpp's hook)
+void PartnerAfterMove(BYTE* player);  // solo.cpp, likewise: the hidden 6-2 Chris kept out of the way
 
 void SplitFrame(BYTE* player);      // split.cpp, every frame from gap.cpp's player-manager hook
 void LocalJoinFrame();              // localjoin.cpp, likewise

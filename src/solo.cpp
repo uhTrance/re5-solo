@@ -49,6 +49,16 @@ void __fastcall NoDraw(void*, void*, void*) {}
 
 void NoDrawPatch(DWORD* copy) { copy[kDrawSlot / 4] = reinterpret_cast<DWORD>(&NoDraw); }
 
+constexpr DWORD kParent = 0x18;
+constexpr DWORD kModelDraw = 0x8300A0;  // +0x24 of models; other units' +0x24 is something else
+
+// Gives a model unit a private vtable copy that draws nothing (ours already, or not a model: skipped).
+void HideUnit(BYTE* unit) {
+    DWORD vt = unit ? At<DWORD>(unit, 0) : 0;
+    if (vt < 0x400000 || vt >= 0x1928000) return;
+    if (reinterpret_cast<DWORD*>(vt)[kDrawSlot / 4] == kModelDraw) PatchObject(unit, vt, NoDrawPatch);
+}
+
 void HidePartnerTick() {
     static DWORD hiddenClass;
     BYTE* chris = PartnerArea() ? Partner() : nullptr;
@@ -65,10 +75,30 @@ void HidePartnerTick() {
         hiddenClass = cls;
         Log("partner: Chris %p hidden", chris);
     }
-    for (int i = 0; i < kInventorySlots; ++i) {
-        BYTE* unit = At<BYTE*>(chris, kInventory + kInventoryStride * i);
-        DWORD vt = unit ? At<DWORD>(unit, 0) : 0;
-        if (vt >= 0x400000 && vt < 0x1928000) PatchObject(unit, vt, NoDrawPatch);  // ours already: skipped
+    for (int i = 0; i < kInventorySlots; ++i) HideUnit(At<BYTE*>(chris, kInventory + kInventoryStride * i));
+    // Scripted props he is handed (the handgun at the chase start, a uWp02 kept idle at the origin until then)
+    // name him as their parent (+0x18), as his inventory units do.
+    static DWORD lastScan;
+    if (GetTickCount() - lastScan < 50) return;
+    lastScan = GetTickCount();
+    ForEachUnit([chris](BYTE* unit) {
+        if (At<BYTE*>(unit, kParent) == chris) HideUnit(unit);
+    });
+}
+
+// Hidden, he would still be heard and bumped into, so until the chase starts (cActWait, 0xB24150, waits for
+// scene 0x28C8) he is put back 200 m above where he spawned after every move (PartnerAfterMove), and on the
+// frame it starts he is set down beside the player for its acts.
+constexpr DWORD kPositionCopies[] = {0x30,  0x90,  0xD0,  0x110,  0x1050, 0x1060, 0x10B0,
+                                     0x1170, 0x11D0, 0x1370, 0x1380, 0x1390, 0x13A0, 0x1B10};
+constexpr DWORD kStageScene = 0x273E0, kChaseScene = 0x28C8;
+constexpr float kParkHeight = 20000.0f, kBeside = 100.0f;
+
+void PlaceAt(BYTE* unit, float x, float y, float z) {
+    for (DWORD off : kPositionCopies) {
+        At<float>(unit, off) = x;
+        At<float>(unit, off + 4) = y;
+        At<float>(unit, off + 8) = z;
     }
 }
 
@@ -145,6 +175,30 @@ DWORD WINAPI Watch(LPVOID) {
 }
 
 }  // namespace
+
+// After each player's move (snag.cpp's hook, game thread): the hidden 6-2 Chris kept out of the way.
+void PartnerAfterMove(BYTE* player) {
+    static BYTE* parked;   // the Chris being parked, and where
+    static float park[3];
+    static BYTE* setDown;  // the Chris already brought back for the chase
+    BYTE* stage = Stage();
+    if (!stage || !PartnerArea() || player != Partner()) return;
+    if (player != parked) {
+        parked = player;
+        park[0] = At<float>(player, 0x30);
+        park[1] = At<float>(player, 0x34) + kParkHeight;
+        park[2] = At<float>(player, 0x38);
+        Log("partner: Chris %p parked out of the way until the chase starts", player);
+    }
+    if (At<DWORD>(stage, kStageScene) < kChaseScene) {
+        PlaceAt(player, park[0], park[1], park[2]);
+    } else if (setDown != player) {
+        setDown = player;
+        if (BYTE* me = PlayerAt(SoloSlot()))
+            PlaceAt(player, At<float>(me, 0x30) + kBeside, At<float>(me, 0x34), At<float>(me, 0x38));
+        Log("partner: chase started, Chris set down beside the player");
+    }
+}
 
 volatile bool g_stopping;
 
