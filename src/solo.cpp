@@ -30,13 +30,24 @@ constexpr DWORD kSoloFlag = 0x80000;
 // slot 0, and its camera on the pair. Playing as Sheva the partner's slot is left open there, so the game spawns
 // Chris as the AI partner for that area and the chase runs as in the normal one-player game.
 constexpr DWORD kStageArea = 0x273D8;
-constexpr DWORD kPartnerArea = 503;
+//
+// The 4-2 collapsing floor (area 301, uOma004_Collapse) is the same: Sheva died within seconds of its scene 0x183D
+// starting with slot 0 empty. Each area lists the scene its sequence starts on.
+struct PartnerStage {
+    DWORD area, startScene;
+};
+constexpr PartnerStage kPartnerStages[] = {{503, 0x28C8}, {301, 0x183D}};
 
-bool PartnerArea() {
+const PartnerStage* PartnerStageNow() {
     BYTE* stage = Stage();
     // Not in record mode: there Chris is a real co-op player, and parking or hiding him would break the game.
-    return !RecordMode() && SoloSlot() == 1 && stage && At<DWORD>(stage, kStageArea) == kPartnerArea;
+    if (RecordMode() || SoloSlot() != 1 || !stage) return nullptr;
+    for (const PartnerStage& s : kPartnerStages)
+        if (At<DWORD>(stage, kStageArea) == s.area) return &s;
+    return nullptr;
 }
+
+bool PartnerArea() { return PartnerStageNow() != nullptr; }
 
 // There Chris is not drawn: units draw through vtable +0x24 (0x8300A0 for players, weapons and items), so his
 // player class's hook copy (the 120fps fix put him on one) and a private copy for each unit in his inventory
@@ -129,12 +140,12 @@ void HidePartnerTick() {
     });
 }
 
-// Hidden, he would still be heard and bumped into, so until the chase starts (cActWait, 0xB24150, waits for
+// Hidden, he would still be heard and bumped into, so until the sequence starts (6-2: cActWait, 0xB24150, waits for
 // scene 0x28C8) he is put back 200 m above where he spawned after every move (PartnerAfterMove), and on the
 // frame it starts he is set down beside the player for its acts.
 constexpr DWORD kPositionCopies[] = {0x30,  0x90,  0xD0,  0x110,  0x1050, 0x1060, 0x10B0,
                                      0x1170, 0x11D0, 0x1370, 0x1380, 0x1390, 0x13A0, 0x1B10};
-constexpr DWORD kStageScene = 0x273E0, kChaseScene = 0x28C8;
+constexpr DWORD kStageScene = 0x273E0;
 constexpr float kParkHeight = 20000.0f, kBeside = 100.0f;
 
 void PlaceAt(BYTE* unit, float x, float y, float z) {
@@ -167,7 +178,7 @@ void Tick() {
         static DWORD logged;
         if (logged != area && (*mask & partnerBit)) {
             logged = area;
-            Log("partner slot %d left open in area %lu (the 6-2 chase needs Chris)", PartnerSlot(), area);
+            Log("partner slot %d left open in area %lu (its sequence needs Chris)", PartnerSlot(), area);
         }
     } else if (*mask & partnerBit) {
         LONG before = InterlockedAnd(mask, ~partnerBit);
@@ -225,7 +236,8 @@ void PartnerAfterMove(BYTE* player) {
     static float park[3];
     static BYTE* setDown;  // the Chris already brought back for the chase
     BYTE* stage = Stage();
-    if (!stage || !PartnerArea() || player != Partner()) return;
+    const PartnerStage* partnerStage = PartnerStageNow();
+    if (!stage || !partnerStage || player != Partner()) return;
     if (player != parked) {
         parked = player;
         park[0] = At<float>(player, 0x30);
@@ -236,7 +248,7 @@ void PartnerAfterMove(BYTE* player) {
         park[2] = At<float>(player, 0x38);
         Log("partner: Chris %p parked out of the way until the chase starts", player);
     }
-    if (At<DWORD>(stage, kStageScene) < kChaseScene) {
+    if (At<DWORD>(stage, kStageScene) < partnerStage->startScene) {
         PlaceAt(player, park[0], park[1], park[2]);
         setDown = nullptr;  // a retry's new Chris can have the old one's address
     } else if (setDown != player) {

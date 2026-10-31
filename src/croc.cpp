@@ -46,13 +46,19 @@ constexpr DWORD kWind = 0x1970, kWindMax = 0x1974, kWindShadow = 0x17FC, kWindPe
 constexpr DWORD kRaftPos = 0x2D0;         // raft's current centre (x y z)
 constexpr DWORD kAction = 0x10F8;
 constexpr float kWindPerSecond = 11.5f;
+// Standing on the deck the player is about 50 above the raft's centre. The ledge it is boarded from is within
+// the old band, so the raft set off before the drop: it now starts only after the player has stood at deck
+// height for a moment, and keeps going while the player stays within the wider band (hops on the deck).
 constexpr float kOnRaftRadius = 450.0f, kOnRaftBelow = -20.0f, kOnRaftAbove = 200.0f;
+constexpr float kDeckBelow = 10.0f, kDeckAbove = 100.0f, kLandSeconds = 0.25f;
 
-bool OnRaft(BYTE* player, BYTE* raft) {
+float HeightAbove(BYTE* player, BYTE* raft) { return At<float>(player, 0x34) - At<float>(raft, kRaftPos + 4); }
+
+bool OnRaft(BYTE* player, BYTE* raft, float below, float above) {
     float dx = At<float>(player, 0x30) - At<float>(raft, kRaftPos);
-    float dy = At<float>(player, 0x34) - At<float>(raft, kRaftPos + 4);
+    float dy = HeightAbove(player, raft);
     float dz = At<float>(player, 0x38) - At<float>(raft, kRaftPos + 8);
-    return dx * dx + dz * dz < kOnRaftRadius * kOnRaftRadius && dy > kOnRaftBelow && dy < kOnRaftAbove;
+    return dx * dx + dz * dz < kOnRaftRadius * kOnRaftRadius && dy > below && dy < above;
 }
 
 // The same crank class raises 3-2's bridge (it pulls a uOmFollow, not the raft): wound all the way (max 150),
@@ -84,20 +90,30 @@ void HoldAtTop(BYTE* crank) {
 void AfterCrankUpdate(BYTE* crank) {
     auto link = At<BYTE*>(crank, kRaft);
     if (link && At<DWORD>(link, 0) != kRaftVtable) return HoldAtTop(crank);
-    static DWORD last;
     static bool winding;
-    DWORD now = GetTickCount();
-    float dt = last ? (now - last) / 1000.0f : 0.0f;
-    last = now;
+    static float landed;  // seconds at deck height while not winding
+    // The game's frame time ([0x11B209C]+0x28, seconds): GetTickCount's ~16 ms steps made the raft move in
+    // jerks above 60 fps (no time on most frames, two frames' worth on the next).
+    auto timer = *reinterpret_cast<BYTE**>(0x11B209C);
+    float dt = timer ? At<float>(timer, 0x28) : 0.0f;
+    if (dt < 0.0f) dt = 0.0f;
     if (dt > 0.1f) dt = 0.1f;  // after a pause or cutscene
     BYTE* player = SoloPlayer();
     auto raft = At<BYTE*>(crank, kRaft);
-    bool on = player && At<BYTE*>(player, kAction) && raft && At<DWORD>(raft, 0) == kRaftVtable &&
-              OnRaft(player, raft);
+    bool valid = player && At<BYTE*>(player, kAction) && raft && At<DWORD>(raft, 0) == kRaftVtable;
+    bool on;
+    if (winding) {
+        on = valid && OnRaft(player, raft, kOnRaftBelow, kOnRaftAbove);
+    } else {
+        landed = valid && OnRaft(player, raft, kDeckBelow, kDeckAbove) ? landed + dt : 0.0f;
+        on = landed >= kLandSeconds;
+    }
     if (on != winding) {
         winding = on;
-        Log("croc crank %p: player %s the raft, crank %s (wind %.0f)", crank, on ? "on" : "off",
-            on ? "turning by itself" : "let go", At<float>(crank, kWind));
+        landed = 0.0f;
+        Log("croc crank %p: player %s the raft (%.0f above its centre), crank %s (wind %.0f)", crank,
+            on ? "on" : "off", valid ? HeightAbove(player, raft) : 0.0f, on ? "turning by itself" : "let go",
+            At<float>(crank, kWind));
     }
     if (!on) return;
     float max = At<float>(crank, kWindMax);
