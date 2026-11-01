@@ -208,7 +208,9 @@ void Tick() {
     LiftTick();
     JeepTick();
     NdesuTick();
-    EnemyHpTick();
+    // EnemyHpTick();  // Ndesu's old solo tuning (enemyhp.cpp): off, the fight runs at its default values
+    NdesuEaseTick();
+    NdesuWatchTick();
     WeskerTick();
     PauseTick();
     DebugTick();

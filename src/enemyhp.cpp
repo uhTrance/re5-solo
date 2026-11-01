@@ -12,9 +12,12 @@
 //
 // Main bulb: Ndesu's bulbs are uEm4502 (DTI 0x11EEBE0), linked from Ndesu +0x1F64[5]; the main one (index 4,
 // +0x1BB4 bit 0x10) is what kills him. Its real health is the int at +0x1F50, not +0x1364: its damage handler
-// (vtable +0x204, 0x8E14F0) subtracts there while +0x1BB4 bit 0 is set, and each exposure re-arms it
-// (0x8E15A9 / 0x8E21D7: 26000 for the main bulb, 8000 for the others), so it must die within one window.
-// Any rise of that value (a re-arm) is divided by kBulbScale, every tick.
+// (vtable +0x204, 0x8E14F0) subtracts there while +0x1BB4 bit 0 is set. 0x8E15A9 / 0x8E21D7 arm it (26000 for the
+// main bulb, 8000 for the others); it holds its damage across exposures and only re-arms on a retry (logged
+// 2026-11-01). Any rise of that value (a re-arm) is divided by kBulbScale, every tick.
+//
+// EnemyHpTick is off (solo.cpp): the fight runs at its default values, with only NdesuEaseTick's changes.
+#include <math.h>
 #include <unordered_map>
 
 #include "objhook.h"
@@ -24,6 +27,10 @@ namespace {
 
 constexpr float kDamageScale = 1.5f;
 constexpr float kBulbScale = 2.0f;
+constexpr short kBoulderHp = 2600;  // default 5200; a fixed value, so a reload of this DLL cannot halve it again
+constexpr DWORD kAttackStop = 0x1F54;
+constexpr float kEasedStops[] = {1500.0f, 2600.0f, 1200.0f, 6000.0f};  // kick, two-handed slam, overhead pole swing, tackle
+constexpr float kStopScale = 0.9f;
 constexpr DWORD kNdesuDti = 0x11EE880;  // uEm45 (not its parts, uEm4501/uEm4502)
 constexpr DWORD kBulbDti = 0x11EEBE0;   // uEm4502
 constexpr DWORD kFlags = 0x1BB4, kMainBulb = 0x10;
@@ -124,5 +131,134 @@ void EnemyHpTick() {
     if (g_ndesu && IsNdesu(g_ndesu)) {
         ScaleGauges(g_ndesu);
         ScaleMainBulb(g_ndesu);
+    }
+}
+
+// A read-only log of the fight at its default values: every change in Ndesu's health, gauges and bulbs, what he is
+// doing (his action's class, +0x10F8) with his distance from the player, and the player's health. Only with
+// re5_solo_ndesuwatch.txt next to the exe.
+namespace {
+
+const char* ActionName(BYTE* action) {
+    __try {
+        auto dti = action ? VCall<BYTE*>(action, 0x10) : nullptr;
+        return dti ? At<const char*>(dti, 4) : "none";
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return "?";
+    }
+}
+
+template <class T>
+bool Changed(T& last, T now) {
+    bool changed = last != now;
+    last = now;
+    return changed;
+}
+
+}  // namespace
+
+// One player's fire against Ndesu's attacks. His thrown boulder (uWp78) has half its health (+0x1364).
+// An attack's stop value (+0x1F54) is loaded whole from a table (0xF82ABC) that is left alone, so the
+// attacks in kEasedStops are caught at exactly their loaded values, every tick; damage (115 or 92 a hit, from any
+// other value) never lands on them. A shot landing in the same tick misses the reduction for that one attack.
+void NdesuEaseTick() {
+    static DWORD lastScan;
+    static BYTE* ndesu;
+    if (GetTickCount() - lastScan >= 200) {
+        lastScan = GetTickCount();
+        BYTE* found = nullptr;
+        ForEachUnit([&](BYTE* u) {
+            if (IsNdesu(u)) found = u;
+            if (strcmp(ActionName(u), "uWp78")) return;
+            short& hp = At<short>(u, kHp);
+            short& maxHp = At<short>(u, kMaxHp);
+            if (maxHp <= 0 || maxHp == kBoulderHp) {
+                if (hp > kBoulderHp) hp = kBoulderHp;
+                return;
+            }
+            Log("Ndesu boulder %p: health %d/%d -> max %d", u, hp, maxHp, kBoulderHp);
+            hp = static_cast<short>(hp * kBoulderHp / maxHp);
+            maxHp = kBoulderHp;
+        });
+        ndesu = found;
+    }
+    if (!ndesu || !IsNdesu(ndesu)) return;
+    float& stop = At<float>(ndesu, kAttackStop);
+    for (float loaded : kEasedStops)
+        if (stop == loaded) {
+            stop = loaded * kStopScale;
+            Log("Ndesu attack stop %.0f -> %.0f", loaded, stop);
+        }
+}
+
+void NdesuWatchTick() {
+    static const bool on = MarkerFile("re5_solo_ndesuwatch.txt");
+    if (!on) return;
+    static DWORD lastScan;
+    static BYTE* ndesu;
+    if (GetTickCount() - lastScan >= 200) {
+        lastScan = GetTickCount();
+        BYTE* found = nullptr;
+        // Every unit class on the lists, once, to find his thrown boulder.
+        static DWORD seen[256];
+        static int seenCount;
+        ForEachUnit([&](BYTE* u) {
+            if (IsNdesu(u)) found = u;
+            const char* cls = ActionName(u);
+            if (!strcmp(cls, "uWp78") || !strcmp(cls, "uWp79")) {
+                static short held[2];
+                short& last = held[cls[4] - '8'];
+                short now = At<short>(u, kHp);
+                if (last != now) Log("ndesu watch: %s %p health %d -> %d (max %d)", cls, u, last, now, At<short>(u, kMaxHp));
+                last = now;
+            }
+            DWORD dti = VCall<DWORD>(u, 0x10);
+            for (int i = 0; i < seenCount; ++i)
+                if (seen[i] == dti) return;
+            if (seenCount == 256) return;
+            seen[seenCount++] = dti;
+            Log("ndesu watch: class %s at %p, +0x1364 %d/%d", ActionName(u), u, At<short>(u, kHp), At<short>(u, kMaxHp));
+        });
+        ndesu = found;
+    }
+    if (!ndesu || !IsNdesu(ndesu)) return;
+    static short hp, playerHp;
+    short nowHp = At<short>(ndesu, kHp);
+    int before = hp;
+    if (Changed(hp, nowHp)) Log("ndesu watch: health %d -> %d (max %d)", before, nowHp, At<short>(ndesu, kMaxHp));
+    static int gauges[kLastGauge + 1];
+    for (int id = kFirstGauge; id <= kLastGauge; ++id) {
+        int value = At<int>(ndesu, kGauges + 12 * id);
+        before = gauges[id];
+        if (Changed(gauges[id], value))
+            Log("ndesu watch: gauge %d %d -> %d (max %d)", id, before, value, At<int>(ndesu, kGauges + 12 * id + 4));
+    }
+    static int bulbs[5];
+    for (int i = 0; i < 5; ++i) {
+        BYTE* b = At<BYTE*>(ndesu, kBulbs + 4 * i);
+        int value = b ? At<int>(b, kBulbHp) : 0;
+        before = bulbs[i];
+        if (Changed(bulbs[i], value)) Log("ndesu watch: bulb %d %d -> %d", i, before, value);
+    }
+    // +0x1F54: what an attack has left before it is stopped (the damage handler, 0x8E1AE6); +0x1F50: what that costs him.
+    static float stopValue, bodyValue;
+    float nowStop = At<float>(ndesu, 0x1F54), nowBody = At<float>(ndesu, 0x1F50);
+    float wasStop = stopValue, wasBody = bodyValue;
+    if (Changed(stopValue, nowStop)) Log("ndesu watch: stop %.0f -> %.0f", wasStop, nowStop);
+    if (Changed(bodyValue, nowBody)) Log("ndesu watch: body %.0f -> %.0f", wasBody, nowBody);
+    BYTE* player = SoloPlayer();
+    float distance = 0.0f;
+    if (player) {
+        float dx = At<float>(ndesu, 0x30) - At<float>(player, 0x30), dz = At<float>(ndesu, 0x38) - At<float>(player, 0x38);
+        distance = sqrtf(dx * dx + dz * dz);
+        short now = At<short>(player, kHp);
+        before = playerHp;
+        if (Changed(playerHp, now)) Log("ndesu watch: player health %d -> %d, distance %.0f", before, now, distance);
+    }
+    static const char* action;
+    const char* name = ActionName(At<BYTE*>(ndesu, 0x10F8));
+    if (action != name) {
+        action = name;
+        Log("ndesu watch: action %s, distance %.0f, flags %08lX", name, distance, At<DWORD>(ndesu, kFlags));
     }
 }

@@ -39,6 +39,8 @@ void LiftTick();
 void JeepTick();
 void NdesuTick();
 void EnemyHpTick();
+void NdesuEaseTick();
+void NdesuWatchTick();
 void WeskerTick();
 void DebugTick();
 void ScriptTick();
