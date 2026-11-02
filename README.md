@@ -4,6 +4,9 @@ A solo Resident Evil 5 story mode. The partner (Sheva by default) is never spawn
 reworked so one player can do it. There is no ghost partner. The removed character still appears in in-engine
 cutscenes.
 
+This is still in testing: see [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for the bugs and gaps so far. The rest of this file
+is technical notes.
+
 ## Target
 
 - Steam Gold Edition, `re5dx9.exe`: 32-bit MT Framework, fixed image base `0x400000` (no ASLR). REFramework
@@ -118,7 +121,9 @@ Marker files next to the exe (read when the core loads):
   writes back each spawned player's items, then copies A over B and C, so the never-spawned partner's weapons
   were lost for good. The partner's block in C is remembered while no player exists and written back into any
   copy that lost it once the player exists (verified: Chris's weapon survived a Sheva load and reached the save,
-  file offset `0x3dac`). The saved file has the same blocks at `0x3d80` (Chris) / `0x41a0` (Sheva).
+  file offset `0x3dac`). Organize can change any one copy with a player present, and those changes are adopted
+  too; this is where the open duplication bug is (see Known issues). The saved file has the same blocks at
+  `0x3d80` (Chris) / `0x41a0` (Sheva).
 - **Save backups** (`backup.cpp`): each new version of `userdata\<account>\21690\remote\savedata.bin` is
   copied to `re5_solo_saves\savedata_<write time>.bin` next to the exe (newest 30 kept).
   `tools\re5save.py` decodes and re-encodes saves (each 8-byte block XORed with the previous encoded one,
@@ -283,11 +288,10 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
   nothing) (`ndesu.cpp`): prompt press `+0x230` (`0x8e08b0`) marks `+0x1bb4` bit `0x40 << slot` and acts only
   with both; `+0x234` (`0x8e09b0`) runs the players' side (type 0 crouch is player 0 only; types 1/2 need
   both). The mod marks the partner's bit and does the solo player's half.
-- **Ndesu tuning** (`enemyhp.cpp`, Ndesu only): health shorts `+0x1364`/`+0x1366` scaled to 2/3 (1.5x damage),
-  again after any reset. Stagger gauges 1-4 (`+0x1c0c + 12*id`: flag, value, max; drained by `+0x204`
-  `0x8e19e0`) have their max halved and refills clamped. Bulbs `uEm4502` (DTI `0x11eebe0`, Ndesu
-  `+0x1f64[5]`, main = index 4): real health is the int at `+0x1f50`, re-armed each exposure (26000 main, 8000
-  others) and must die within one window; every re-arm of the main bulb is halved.
+- **Ndesu tuning** (`enemyhp.cpp`, `NdesuEaseTick`): his health, gauges and bulbs are at their default values. His
+  thrown boulder (`uWp78`) has 2600 health instead of 5200. The attack stop values at `+0x1f54` for the kick, slam,
+  pole swing and tackle (1500, 2600, 1200, 6000) are 10% lower, caught at their exact loaded values. The older
+  health, gauge and bulb scaling (`EnemyHpTick`) is still in the file but off.
 - **Wesker phase 1** (6-3, `uEm80` `0xf8be60`, `uEm81` `0xf8c300`) (`wesker.cpp`): press `+0x230`
   (`0x9084b0`) -> `+0x234` (`0x9085e0`, (player, type, result)); type 1 hold (action 0x6a, holder `+0x1f64`),
   type 2 inject (only while `+0x10e0` == 0x6a; injector = presser). After the player has held him 1 s with no
@@ -339,16 +343,6 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
 - `snag.cpp` also owns the players' vtable copies (HookObject on `+0x1c`, every slot): `death.cpp` runs after
   the move through it.
 
-## Known issues and unconfirmed
+## Known issues
 
-- 2-3 jeep: a stray orange aim arc shows on screen.
-- Not confirmed in play: elevators (mod build; the manual write worked), 4-1 separation fix, partner voice
-  lines, boat pad remap and hint box, DirectInput pads, Sheva mode (and whether the pad drives slot 1; see
-  `+0x480` in the log), Ndesu crouch for player 1 (uses Chris's crouch params, a guess).
-
-## Open
-
-- Unhandled co-op moments: cliff climbs and ladders (`cPlAction_pl_act_coop_*`, e.g. 3-1 ladder), Jill (5-3).
-- Still to check from `re/needs2p.txt`: `uOm0201_Piano`, `uOmClutch`, `uOmS103ScrAdj`, `uOmJeepRail`, Jill
-  (`uEm83/84` pinion), `uEm82` pinion pairs (`0x92d0e0`..).
-- A full playthrough of every chapter for softlocks.
+See [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
