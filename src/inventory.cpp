@@ -9,6 +9,12 @@
 //
 // While no player exists (menus, Item Management), the partner's block in C is remembered; once the player exists,
 // any copy whose partner block differs from it gets it back, so the loadout is still equipped next time.
+//
+// Item Management after Restart from Checkpoint runs with a player present and writes A and B, not C, so none of
+// that was remembered and putting the old block back undid the player's changes: items given to the partner
+// vanished, items taken from them came back on top of the stash. The load only ever empties the partner's block,
+// so a non-empty A that differs is the player's change and is remembered instead. Taking all of the partner's items
+// still reads as the load's wipe there, and they come back.
 #include <cstdio>
 #include <cstring>
 
@@ -27,6 +33,12 @@ BYTE g_saved[2][kBlockBytes];
 bool g_have[2];
 
 BYTE* Block(BYTE* stage, DWORD copy, int slot) { return stage + copy + kBlockStride * slot; }
+
+bool IsEmpty(const BYTE* block) {
+    for (DWORD i = 0; i < kEntries; ++i)
+        if (*reinterpret_cast<const DWORD*>(block + kEntry * i + 8)) return false;
+    return true;
+}
 
 void Describe(const BYTE* block, char* out, size_t size) {
     size_t n = 0;
@@ -60,6 +72,12 @@ void InventoryTick() {
         return;
     }
     if (!SoloPlayer() || !g_have[partner]) return;
+    BYTE* level = Block(stage, kCopies[0], partner);
+    if (memcmp(level, g_saved[partner], kBlockBytes) && !IsEmpty(level)) {
+        memcpy(g_saved[partner], level, kBlockBytes);
+        Describe(level, items, sizeof items);
+        Log("inventory: %s's loadout changed, remembered:%s", partner ? "Sheva" : "Chris", items);
+    }
     for (DWORD copy : kCopies) {
         BYTE* block = Block(stage, copy, partner);
         if (!memcmp(block, g_saved[partner], kBlockBytes)) continue;
