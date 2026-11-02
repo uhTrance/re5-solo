@@ -13,8 +13,11 @@
 // Item Management after Restart from Checkpoint runs with a player present and writes A and B, not C, so none of
 // that was remembered and putting the old block back undid the player's changes: items given to the partner
 // vanished, items taken from them came back on top of the stash. The load only ever empties the partner's block,
-// so a non-empty A that differs is the player's change and is remembered instead. Taking all of the partner's items
-// still reads as the load's wipe there, and they come back.
+// so a non-empty copy that differs is the player's change and is remembered instead. B goes first, then C, then A:
+// Organize can change B alone (logged 2026-11-02: B 0:203 with A and C still 0:202), and putting the block back
+// then undid the change before Ready committed it. An empty B or C with A not empty is the player's too (the load
+// empties A first), but all of the partner's items taken with A emptied as well still reads as the load's wipe,
+// and they come back.
 #include <cstdio>
 #include <cstring>
 
@@ -73,10 +76,14 @@ void InventoryTick() {
     }
     if (!SoloPlayer() || !g_have[partner]) return;
     BYTE* level = Block(stage, kCopies[0], partner);
-    if (memcmp(level, g_saved[partner], kBlockBytes) && !IsEmpty(level)) {
-        memcpy(g_saved[partner], level, kBlockBytes);
-        Describe(level, items, sizeof items);
-        Log("inventory: %s's loadout changed, remembered:%s", partner ? "Sheva" : "Chris", items);
+    const DWORD newestFirst[] = {kCopies[1], kCopies[2], kCopies[0]};
+    for (DWORD copy : newestFirst) {
+        BYTE* block = Block(stage, copy, partner);
+        if (!memcmp(block, g_saved[partner], kBlockBytes) || (IsEmpty(block) && IsEmpty(level))) continue;
+        memcpy(g_saved[partner], block, kBlockBytes);
+        Describe(block, items, sizeof items);
+        Log("inventory: %s's loadout changed in copy +%lX, remembered:%s", partner ? "Sheva" : "Chris", copy, items);
+        break;
     }
     for (DWORD copy : kCopies) {
         BYTE* block = Block(stage, copy, partner);
