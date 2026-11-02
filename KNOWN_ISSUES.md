@@ -8,13 +8,14 @@ softlocks that aren't listed here. Saves are backed up automatically to `re5_sol
 - **Items can be duplicated through Organize (seen in 5-3, playing as Sheva).** Take items off the absent
   character or give one to the player, click Ready, die, then choose Continue: the absent character has the old
   items again and the player keeps theirs. v4 fixed this for Restart from Checkpoint, but it may still happen on
-  this route. A further fix is being tested and isn't in a package yet. It isn't known yet whether this is
-  specific to 5-3, where Jill may be involved.
+  this route. A further fix is in the repo (any copy that changes is adopted, with or without a player) but
+  hasn't been retested on this route or packaged. It isn't known yet whether this is specific to 5-3, where Jill
+  may be involved.
 - **Taking every item off the absent character may not stick.** If the level's copy of the loadout is empty at the
   same time, this looks the same as the wipe a chapter load does, so the items come back. Found by reading the code,
   not seen in play.
 - **4-1: a shield enemy under the bridge doesn't spawn, and others in that group may be missing.** The game waited
-  for a player on the far landing. Fixed and confirmed in development, but not in a package yet. The fix also brings
+  for a player on the far landing. Fixed and confirmed in the repo, but not in a package yet. The fix also brings
   in four more enemies about half a second later, three of them far from the player; that hasn't been compared with
   vanilla co-op, and the rest of 4-1 hasn't been replayed with them.
 - **2-3 jeep:** a stray orange aim arc shows on screen.
@@ -36,6 +37,7 @@ softlocks that aren't listed here. Saves are backed up automatically to `re5_sol
 - 4-1 as Sheva
 - The take-all gap on Organize (see above)
 - The latest Ndesu attack changes, in live play (tackle and overhead pole swing)
+- Ndesu's hit cooldown fix with weapons other than the jeep turret
 - Elevators through the mod's own code (the same write done by hand worked)
 - Pulleys and partner voice lines
 - The boat's pad remap and hint box

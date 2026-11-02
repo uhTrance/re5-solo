@@ -13,11 +13,11 @@
 // Item Management after Restart from Checkpoint runs with a player present and writes A and B, not C, so none of
 // that was remembered and putting the old block back undid the player's changes: items given to the partner
 // vanished, items taken from them came back on top of the stash. The load only ever empties the partner's block,
-// so a non-empty copy that differs is the player's change and is remembered instead. B goes first, then C, then A:
-// Organize can change B alone (logged 2026-11-02: B 0:203 with A and C still 0:202), and putting the block back
-// then undid the change before Ready committed it. An empty B or C with A not empty is the player's too (the load
-// empties A first), but all of the partner's items taken with A emptied as well still reads as the load's wipe,
-// and they come back.
+// so a copy that changed since the last look is the player's change and is remembered instead, with or without a
+// player: Organize can change any one copy alone (logged 2026-11-02: B 0:203 with A and C still 0:202), and a copy
+// merely differing can be the stale one. An empty copy with A not empty is the player's too (the load empties A
+// first), but all of the partner's items taken with A emptied as well still reads as the load's wipe, and they
+// come back.
 #include <cstdio>
 #include <cstring>
 
@@ -34,6 +34,8 @@ constexpr DWORD kBlockBytes = kEntries * kEntry;
 
 BYTE g_saved[2][kBlockBytes];
 bool g_have[2];
+BYTE g_seen[2][3][kBlockBytes];  // each copy at the last look
+bool g_seenAny[2];
 
 BYTE* Block(BYTE* stage, DWORD copy, int slot) { return stage + copy + kBlockStride * slot; }
 
@@ -64,27 +66,31 @@ void InventoryTick() {
     if (!stage) return;
     int partner = PartnerSlot();
     char items[256];
-    if (!PlayerAt(0) && !PlayerAt(1)) {  // menus and loading: remember what Item Management committed
+    bool noPlayer = !PlayerAt(0) && !PlayerAt(1);
+    if (noPlayer && !g_have[partner]) {  // the first look: what Item Management last committed
         BYTE* committed = Block(stage, kCommitted, partner);
-        if (!g_have[partner] || memcmp(g_saved[partner], committed, kBlockBytes)) {
-            memcpy(g_saved[partner], committed, kBlockBytes);
-            g_have[partner] = true;
-            Describe(committed, items, sizeof items);
-            Log("inventory: %s's loadout remembered:%s", partner ? "Sheva" : "Chris", items);
-        }
-        return;
+        memcpy(g_saved[partner], committed, kBlockBytes);
+        g_have[partner] = true;
+        Describe(committed, items, sizeof items);
+        Log("inventory: %s's loadout remembered:%s", partner ? "Sheva" : "Chris", items);
     }
-    if (!SoloPlayer() || !g_have[partner]) return;
     BYTE* level = Block(stage, kCopies[0], partner);
-    const DWORD newestFirst[] = {kCopies[1], kCopies[2], kCopies[0]};
-    for (DWORD copy : newestFirst) {
-        BYTE* block = Block(stage, copy, partner);
-        if (!memcmp(block, g_saved[partner], kBlockBytes) || (IsEmpty(block) && IsEmpty(level))) continue;
+    bool remembered = false;
+    for (int i = 0; i < 3; ++i) {
+        BYTE* block = Block(stage, kCopies[i], partner);
+        BYTE* seen = g_seen[partner][i];
+        bool changed = g_seenAny[partner] && memcmp(block, seen, kBlockBytes);
+        memcpy(seen, block, kBlockBytes);
+        if (!changed || remembered || !g_have[partner] || !memcmp(block, g_saved[partner], kBlockBytes)) continue;
+        if (IsEmpty(block) && IsEmpty(level)) continue;
         memcpy(g_saved[partner], block, kBlockBytes);
+        remembered = true;
         Describe(block, items, sizeof items);
-        Log("inventory: %s's loadout changed in copy +%lX, remembered:%s", partner ? "Sheva" : "Chris", copy, items);
-        break;
+        Log("inventory: %s's loadout changed in copy +%lX (area %lu, %s), remembered:%s", partner ? "Sheva" : "Chris",
+            kCopies[i], At<DWORD>(stage, 0x273D8), noPlayer ? "no player" : "player", items);
     }
+    g_seenAny[partner] = true;
+    if (noPlayer || !SoloPlayer() || !g_have[partner]) return;
     for (DWORD copy : kCopies) {
         BYTE* block = Block(stage, copy, partner);
         if (!memcmp(block, g_saved[partner], kBlockBytes)) continue;

@@ -291,7 +291,17 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
 - **Ndesu tuning** (`enemyhp.cpp`, `NdesuEaseTick`): his health, gauges and bulbs are at their default values. His
   thrown boulder (`uWp78`) has 2600 health instead of 5200. The attack stop values at `+0x1f54` for the kick, slam,
   pole swing and tackle (1500, 2600, 1200, 6000) are 10% lower, caught at their exact loaded values. The older
-  health, gauge and bulb scaling (`EnemyHpTick`) is still in the file but off.
+  health, gauge and bulb scaling (`EnemyHpTick`) is still in the file but off. An attack's stop is checked only
+  on the hit that takes `+0x1f54` from above 0 to 0 or below, and only while the stop window (`+0x448` bit
+  `0x2000`) is open; a stop used up before the window opened let the attack land, so until it opens the value is
+  held at 1.
+- **Ndesu hit cooldown at high frame rates** (`ndesu.cpp`): an applied hit (`0x9e0840`) arms a per-part cooldown
+  from the hit's `+0x34` (0.1 s for the jeep turret) in `+0x1e10[part]`, which becomes `+0x1dfc[part]` and ticks
+  down by frame time; while it is above 0 the part ignores hits (`0x9e0700`). The turret fires every 0.104 s, so
+  at 120 fps a bullet arriving one frame early was thrown away (about 6% of body hits; 30 fps lost none). Ndesu
+  and his bulbs (`uEm4502`, `0xf83b90`) get `+0x200` (called right after the cooldown is armed) replaced: it
+  shortens the new cooldown by (1/30 s - frame time). Main bulb damage per exposure at 120 fps went from about
+  8,400-8,700 to 10,350 (30 fps: 9,430).
 - **Wesker phase 1** (6-3, `uEm80` `0xf8be60`, `uEm81` `0xf8c300`) (`wesker.cpp`): press `+0x230`
   (`0x9084b0`) -> `+0x234` (`0x9085e0`, (player, type, result)); type 1 hold (action 0x6a, holder `+0x1f64`),
   type 2 inject (only while `+0x10e0` == 0x6a; injector = presser). After the player has held him 1 s with no

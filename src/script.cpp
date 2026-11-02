@@ -93,9 +93,25 @@ constexpr DWORD kFsmTaskVtable = 0xF9DA80, kLevelScriptVtable = 0x103D7A8;
 constexpr DWORD kAreaHitVtable = 0x103E1E4, kTargetVtable = 0x1042A08;
 constexpr DWORD kCameraVtable = 0x103E360, kCameraTarget = 9;
 
+// 4-1 after the split (s300 BrakeBridge, ChkWhichPL): group 6 spawns once a player stands in zone 3 of manager 6,
+// on the far side where the player who crossed lands. The mod keeps the player on the near side, so it never
+// spawned. Those checks now use zone 2, on the player's way down to the bridge.
+constexpr DWORD kAreaHitZone = 0x18, kArea = 0x273D8;
+constexpr DWORD kSplitArea = 300, kFarLandingZone = 3, kNearPathZone = 2;
+
+void RetargetSplitZone(BYTE* cond) {
+    BYTE* stage = Stage();
+    if (!stage || At<DWORD>(stage, kArea) != kSplitArea) return;
+    auto zone = At<BYTE*>(cond, kAreaHitZone);
+    if (!zone || At<DWORD>(zone, 4) != 6 || At<DWORD>(zone, 8) != kFarLandingZone) return;
+    At<DWORD>(zone, 8) = kNearPathZone;
+    Log("scripts: 4-1 check on the far landing zone now uses zone %lu", kNearPathZone);
+}
+
 // One AreaHit condition: if its player targets include the partner and not the player, retarget them.
 bool RetargetAreaHit(BYTE* cond) {
     if (At<DWORD>(cond, 0x14) != 4) return false;
+    RetargetSplitZone(cond);
     DWORD count = At<DWORD>(cond, 0x1C + 8);
     auto entries = At<BYTE**>(cond, 0x1C + 0x14);
     if (!entries || count == 0 || count > 8) return false;

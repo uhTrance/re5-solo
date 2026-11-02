@@ -31,6 +31,9 @@ constexpr short kBoulderHp = 2600;  // default 5200; a fixed value, so a reload 
 constexpr DWORD kAttackStop = 0x1F54;
 constexpr float kEasedStops[] = {1500.0f, 2600.0f, 1200.0f, 6000.0f};  // kick, two-handed slam, overhead pole swing, tackle
 constexpr float kStopScale = 0.9f;
+constexpr DWORD kStopFlags = 0x448, kStopWindow = 0x2000;
+constexpr DWORD kAttacking = 0x2;  // +0x1BB4, set at an attack's start
+constexpr float kStopHeld = 1.0f;
 constexpr DWORD kNdesuDti = 0x11EE880;  // uEm45 (not its parts, uEm4501/uEm4502)
 constexpr DWORD kBulbDti = 0x11EEBE0;   // uEm4502
 constexpr DWORD kFlags = 0x1BB4, kMainBulb = 0x10;
@@ -189,6 +192,15 @@ void NdesuEaseTick() {
             stop = loaded * kStopScale;
             Log("Ndesu attack stop %.0f -> %.0f", loaded, stop);
         }
+    // The damage handler (0x8E1AE6) stops an attack only on the hit that takes the stop value from above 0 to 0
+    // or below, and only while his stop window (+0x448 bit 0x2000) is open: that hit costs him 5000 (+0x1F50) and
+    // he flinches. A value already at 0 is never checked again, and the bulbs' handler (0x8E153D) keeps
+    // subtracting past 0. So a stop used up before the window opened let the attack land (2-3, the slam crossed
+    // 0 at 2.22 s and hit; every crossing from 2.25 s stopped it). Until the window opens it is held just above 0.
+    if ((At<DWORD>(ndesu, kFlags) & kAttacking) && stop <= 0.0f && !(At<DWORD>(ndesu, kStopFlags) & kStopWindow)) {
+        Log("Ndesu attack stop %.0f before the stop window opened, held at %.0f", stop, kStopHeld);
+        stop = kStopHeld;
+    }
 }
 
 void NdesuWatchTick() {
@@ -226,6 +238,18 @@ void NdesuWatchTick() {
     short nowHp = At<short>(ndesu, kHp);
     int before = hp;
     if (Changed(hp, nowHp)) Log("ndesu watch: health %d -> %d (max %d)", before, nowHp, At<short>(ndesu, kMaxHp));
+    static DWORD lastRate;
+    static int rate;
+    if (GetTickCount() - lastRate >= 1000) {  // the frame time (snag.cpp's timer), for 30 vs 120 fps comparisons
+        lastRate = GetTickCount();
+        auto timer = *reinterpret_cast<BYTE**>(0x11B209C);
+        float seconds = timer ? At<float>(timer, 0x28) : 0.0f;
+        int now = seconds > 0.0f ? static_cast<int>(1.0f / seconds + 0.5f) : 0;
+        if (abs(now - rate) > rate / 10 + 1) {
+            Log("ndesu watch: frame rate %d (was %d)", now, rate);
+            rate = now;
+        }
+    }
     static int gauges[kLastGauge + 1];
     for (int id = kFirstGauge; id <= kLastGauge; ++id) {
         int value = At<int>(ndesu, kGauges + 12 * id);
@@ -234,11 +258,26 @@ void NdesuWatchTick() {
             Log("ndesu watch: gauge %d %d -> %d (max %d)", id, before, value, At<int>(ndesu, kGauges + 12 * id + 4));
     }
     static int bulbs[5];
+    static bool exposed[5];
+    static DWORD exposedAt[5];
+    static int exposedHp[5];
     for (int i = 0; i < 5; ++i) {
         BYTE* b = At<BYTE*>(ndesu, kBulbs + 4 * i);
         int value = b ? At<int>(b, kBulbHp) : 0;
         before = bulbs[i];
         if (Changed(bulbs[i], value)) Log("ndesu watch: bulb %d %d -> %d", i, before, value);
+        // Exposed = +0x1BB4 bit 0, the bit the bulb's damage handler (0x8E14F0) needs to take damage.
+        bool open = b && (At<DWORD>(b, kFlags) & 1);
+        if (open == exposed[i]) continue;
+        exposed[i] = open;
+        if (open) {
+            exposedAt[i] = GetTickCount();
+            exposedHp[i] = value;
+            Log("ndesu watch: bulb %d exposed (health %d, %d fps)", i, value, rate);
+        } else {
+            Log("ndesu watch: bulb %d closed after %.2f s, damage %d (health %d, %d fps)", i,
+                (GetTickCount() - exposedAt[i]) / 1000.0f, exposedHp[i] - value, value, rate);
+        }
     }
     // +0x1F54: what an attack has left before it is stopped (the damage handler, 0x8E1AE6); +0x1F50: what that costs him.
     static float stopValue, bodyValue;
@@ -246,6 +285,9 @@ void NdesuWatchTick() {
     float wasStop = stopValue, wasBody = bodyValue;
     if (Changed(stopValue, nowStop)) Log("ndesu watch: stop %.0f -> %.0f", wasStop, nowStop);
     if (Changed(bodyValue, nowBody)) Log("ndesu watch: body %.0f -> %.0f", wasBody, nowBody);
+    static bool window;
+    if (Changed(window, (At<DWORD>(ndesu, kStopFlags) & kStopWindow) != 0))
+        Log("ndesu watch: stop window %s", window ? "open" : "closed");
     BYTE* player = SoloPlayer();
     float distance = 0.0f;
     if (player) {
