@@ -17,11 +17,6 @@
 // (flag 68) only once both levers' own state (+0x1970, read by vtable +0x194) is 1, and the lever the mod marked
 // never moved, so it stayed 0 and the power never came on. Once a lever of a pair is on and its partner's byte
 // is set, the partner's state is set to 1 too.
-//
-// 3-3's pair takes both pulls. In co-op a lever is held: letting go clears its byte and +0x19A4 (0xB3A9F6), so
-// the pair goes only while both are held. Here the byte is put back when the player lets go, which latches that
-// lever (the prompt check refuses it to him now, +0x19A4 being -1); pulling the other one finds both bytes set,
-// the same state the walk-up mark gives every other pair.
 #include "objhook.h"
 #include "solo.h"
 
@@ -37,54 +32,12 @@ BYTE* g_levers[32];
 int g_count;
 int g_marked = -1;  // the byte the mod set (the partner's), not a pull
 
-constexpr DWORD kHolder = 0x19A4;  // the player holding it, -1 for nobody
-bool g_bothPulls;                  // the pair found takes both pulls
-int g_held = -1, g_latched = -1;   // its lever the player is holding; its lever he has let go of
-bool g_pairWent;
-
-bool TakesBothPulls(BYTE* lever) {
-    auto dti = VCall<BYTE*>(lever, 0x10);
-    return dti && !strcmp(At<const char*>(dti, 4), "uOm08f3");
-}
-
-void BothPullsTick(volatile BYTE* pulled) {
-    if (!g_bothPulls) {  // a load: a lever let go of does not outlast its pair
-        if (g_latched >= 0 && !g_pairWent) pulled[g_latched] = 0;
-        g_held = g_latched = -1;
-        g_pairWent = false;
-        return;
-    }
-    if (g_pairWent) return;
-    if (pulled[0] && pulled[1]) {
-        Log("lever: both pulled, the pair goes");
-        g_pairWent = true;
-        return;
-    }
-    if (g_latched >= 0) pulled[g_latched] = 1;  // the game clears it, or a pull of the other lever must find it
-    for (int i = 0; i < g_count; ++i) {
-        BYTE* lever = g_levers[i];
-        int own = At<int>(lever, kIndex);
-        if (pulled[own] && At<int>(lever, kHolder) >= 0) g_held = own;
-    }
-    if (g_held >= 0 && !pulled[g_held]) {
-        pulled[g_held] = 1;
-        g_latched = g_held;
-        g_held = -1;
-        Log("lever: let go of lever %d, it stays pulled", g_latched);
-        ShowHint("Now pull the other lever.", 4.0f);
-    }
-}
-
 void FindLevers() {
     g_count = 0;
-    g_bothPulls = false;
     ForEachUnit([](BYTE* u) {
         if (g_count == 32 || !IsA(u, kSwitchDti)) return;  // IsA first: small units end before +0x19A0
         int index = At<int>(u, kIndex);
-        if ((index == 0 || index == 1) && At<BYTE*>(u, kPartner)) {
-            g_levers[g_count++] = u;
-            if (TakesBothPulls(u)) g_bothPulls = true;
-        }
+        if ((index == 0 || index == 1) && At<BYTE*>(u, kPartner)) g_levers[g_count++] = u;
     });
 }
 
@@ -97,9 +50,8 @@ void LeverTick() {
         FindLevers();
     }
     auto pulled = reinterpret_cast<volatile BYTE*>(kPulled);
-    BothPullsTick(pulled);
     BYTE* player = SoloPlayer();
-    if (player && !g_bothPulls) {
+    if (player) {
         BYTE* nearest = nullptr;
         float best = kNear * kNear;
         for (int i = 0; i < g_count; ++i) {
