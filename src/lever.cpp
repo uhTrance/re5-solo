@@ -14,11 +14,11 @@
 // is touched once a real pull has set a byte.
 //
 // The pull bytes are not all a level reads: 3-3's room controller (aS307, step +0x639 1) powers the belt levers
-// (flag 68) only once both levers' own state (+0x1970, read by vtable +0x194) is 1, and the lever the mod marked
-// never moved, so it stayed 0 and the power never came on. So each lever is pulled in turn: once the first is on,
-// both bytes are cleared and the walk-up mark then serves the other lever, whose own pull turns it on. The first
-// lever gets no mark while it is the nearest. Holding one lever and letting go does not latch it for this: the
-// second lever then never registers a pull (tried 2026-11-02).
+// (flag 68) only once both levers' own state (+0x1970, read by vtable +0x194) is 1. The pair goes at the first
+// pull and the marked lever moves with it, but its own pull never ran, so its state stayed 0 and the power never
+// came on. So once one lever is on, the mod turns its partner's state on too (5-2, confirmed 2026-11-03). Pulling
+// each lever in turn does not work: the partner is already down and cannot be pulled again. Holding one lever and
+// letting go does not latch it either: the second lever then never registers a pull (tried 2026-11-02).
 #include "objhook.h"
 #include "solo.h"
 
@@ -33,7 +33,6 @@ constexpr float kNear = 400.0f;
 BYTE* g_levers[32];
 int g_count;
 int g_marked = -1;  // the byte the mod set (the partner's), not a pull
-bool g_firstOn;     // one lever of the pair is on: the other is still to pull
 
 void FindLevers() {
     g_count = 0;
@@ -78,23 +77,16 @@ void LeverTick() {
         }
     }
     if (!pulled[0] && !pulled[1]) g_marked = -1;  // the game reset the pair
-    bool anyOn = false;
     for (int i = 0; i < g_count; ++i) {
         BYTE* lever = g_levers[i];
         // The list is a second old at most: only a live lever pair (the partner links back).
         if (!IsA(lever, kSwitchDti)) continue;
         BYTE* partner = At<BYTE*>(lever, kPartner);
         if (!partner || !IsA(partner, kSwitchDti) || At<BYTE*>(partner, kPartner) != lever) continue;
-        if (At<BYTE>(lever, kState) != 1) continue;
-        anyOn = true;
-        if (g_firstOn || At<BYTE>(partner, kState) == 1) continue;
-        g_firstOn = true;
-        pulled[0] = pulled[1] = 0;
-        g_marked = -1;
-        Log("lever %p: on, partner lever %d is still to pull", lever, At<int>(partner, kIndex));
-        ShowHint("Now pull the other lever.", 4.0f);
+        if (At<BYTE>(lever, kState) != 1 || At<BYTE>(partner, kState) == 1) continue;
+        At<BYTE>(partner, kState) = 1;
+        Log("lever %p: on, partner lever %d turned on too", lever, At<int>(partner, kIndex));
     }
-    if (!anyOn) g_firstOn = false;
     // Fallback: a lever pulled away from the ones found. Not while a pair is found: mirroring a real pull would
     // set the other lever's own byte, and that lever could then no longer be pulled (3-3).
     if (g_count == 0 && pulled[0] != pulled[1]) {

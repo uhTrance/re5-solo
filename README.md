@@ -169,8 +169,8 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
   `+0x1a51/52` both 2. One pull marks the other handle and sends `0xf1` once per pulley (repeating it broke
   later pulleys). `+0x1a50` (handles usable only with a partner, so no prompt solo) is cleared on hook.
 - **Cranks** (`crank.cpp`, `uOmCrank` + 9 subclasses): wind `+0x1970` (shadow `+0x17fc`, percent `+0x197c`),
-  max `+0x1974` (300); the gate follows the wind and unwinds on release. Wind is pinned at 66% of max once
-  reached. `+0x19f5` (finished) blocks turning. Valves (`+0x19a4` bit 4, e.g. 3-2 `uOm08df`) are skipped:
+  max `+0x1974` (300); the gate follows the wind and unwinds on release. Wind is pinned at 50% of max (three
+  turns of the 2-2 crank) once reached. `+0x19f5` (finished) blocks turning. Valves (`+0x19a4` bit 4, e.g. 3-2 `uOm08df`) are skipped:
   they finish at max by themselves. In `cActPlWind` the crank is `+0x20`, the player `+0x24` (reversed vs the
   jump actions), so every hook checks the class (`IsA`).
 - **3-2 crocodile raft and bridge** (`croc.cpp`, crank `uOm08a6` vtbl `0xfccda0`): the raft (`uOm08a3`,
@@ -185,7 +185,8 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
 - **Two-man levers** (`lever.cpp`, `uOmSwitch` pairs, e.g. 3-3 `uOm08f3`): index `+0x19a0` (0/1), partner
   `+0x199c`; a pull sets `0x1202040[index]`, the pair goes when both are set, checked at the pull. The
   partner's byte is set when the player walks up to a lever, plus a mirror after the pull as fallback (which
-  must ignore the byte the mod set). The game clears the pre-set byte, so each lever is pulled once in turn.
+  must ignore the byte the mod set). The marked lever moves with the pull but its own state (`+0x1970`) stays
+  0, and the room (`aS307`) powers on only when both are 1, so once one lever is on the mod sets its partner's.
 - **Lever lift** (`lift.cpp`, 3-3 `uOm0944`, a `uOmSwitch` whose object is the lift): stepping onto the
   platform (within 130 of `+0x30`, edge-triggered, lever idle) runs the pull handler's steps (`+0x1985`
   pressed, ready bit, toggle `+0x17fc`, action 3) with no player; with a player, action 3 moves him to the

@@ -32,7 +32,7 @@ softlocks that aren't listed here. Saves are backed up automatically to `re5_sol
 
 ## Not tested
 
-- 5-2 levers since the change to pulling each lever in turn
+- 5-2 levers with the mod's own fix (both on after one pull) from a fresh checkpoint; setting it by hand worked
 - The absent character's loadout across a chapter change
 - 4-1 as Sheva
 - The take-all gap on Organize (see above)
