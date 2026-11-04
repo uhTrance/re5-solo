@@ -15,6 +15,15 @@
 // early (Ndesu or the aim moving) is thrown away: about 6% of body hits, measured 2026-11-02. Fix: right after
 // the cooldown is armed (vtable +0x200, called next by 0x9E0840), shorten it by (1/30 s - frame time), the
 // leeway 30 fps frames give. Ndesu's body and his bulbs (uEm4502, vtable 0xF83B90) each get this.
+//
+// Target as Sheva: Ndesu's AI (uEmIntel45, vtable 0xF96C80, a unit of its own; +0x280 = Ndesu) keeps its
+// target in +0x2C and Ndesu's +0x1BA4, and about ten places in it (its think, +0x94 0x9AC920, and its states)
+// fill both with getPlayer(0). As Sheva slot 0 is empty, so after his opening walk he had no target and
+// waited forever ("walks two steps and freezes", 2026-11-04). The walk itself was short too: the state change
+// (+0x48) takes player 0's position as its destination and skips it when slot 0 is empty, so he stopped at 6645
+// and attacked from there (about 5846 as Chris). Fix: the AI gets a vtable copy whose think, state change and
+// resets (+0x68, +0x6C) run with the player also in slot 0 (see AsPlayer0) and
+// fill a target left empty afterwards; the watcher also fills an empty target every 10 ms.
 #include "objhook.h"
 #include "solo.h"
 
@@ -34,6 +43,15 @@ constexpr DWORD kHitAppliedSlot = 0x200 / 4;
 constexpr DWORD kNdesuHitApplied = 0x8E0620, kBulbHitApplied = 0x8E3B40;
 constexpr DWORD kCooldownArmed = 0x1E10, kHitCooldown = 0x34;  // [5] floats; in the hit record
 constexpr DWORD kFrameTimer = 0x11B209C, kFrameSeconds = 0x28;
+constexpr DWORD kIntelVtable = 0xF96C80;  // uEmIntel45
+constexpr DWORD kThinkSlot = 0x94 / 4, kThink = 0x9AC920;
+constexpr DWORD kSetStateSlot = 0x48 / 4, kSetState = 0x9ABF80;
+constexpr DWORD kResetSlot = 0x68 / 4, kReset = 0x9AB790;
+constexpr DWORD kRestartSlot = 0x6C / 4, kRestart = 0x9AC660;
+constexpr DWORD kIntelNdesu = 0x280, kIntelTarget = 0x2C, kNdesuTarget = 0x1BA4;
+// Player +0x2DA8: 0 = human, 1 = AI. A refresh while the player stands in slot 0 would give them slot 0's
+// (Chris's, AI) setting, and the rumble's "first human player" (0x7E6290) then finds none and crashes (0xB8A458).
+constexpr DWORD kPlControl = 0x2DA8;
 
 BYTE* Solo() { return Partner() ? nullptr : SoloPlayer(); }
 
@@ -93,17 +111,80 @@ void PatchNdesu(DWORD* copy) {
     copy[kHitAppliedSlot] = reinterpret_cast<DWORD>(&NdesuHitApplied);
 }
 
+BYTE* g_intel;  // the patched AI
+
+// As Sheva with no partner: give the AI and Ndesu the player as target if theirs is empty.
+void FillTarget(BYTE* intel) {
+    BYTE* me = Solo();
+    if (!me || SoloSlot() == 0 || At<BYTE*>(intel, kIntelTarget)) return;
+    At<BYTE*>(intel, kIntelTarget) = me;
+    if (BYTE* ndesu = At<BYTE*>(intel, kIntelNdesu)) At<BYTE*>(ndesu, kNdesuTarget) = me;
+    Log("Ndesu AI %p: no target (player 0 is empty), player %d targeted", intel, SoloSlot());
+}
+
+// Runs fn with the player also in slot 0 (as Sheva with no partner), then empties slot 0 again. The player
+// stays in their own slot throughout: other threads read the slots while the AI runs, and moving the player
+// (fill 0, empty 1) let the pad rumble's "first human player" scan (0x7E6290) read slot 0 before and slot 1
+// after, find nobody and crash at 0xB8A458 (twice, 2026-11-04). Calls nested inside another wrapped call find
+// slot 0 filled and leave it alone.
+template <class F>
+void AsPlayer0(BYTE* intel, F fn) {
+    auto list = *reinterpret_cast<BYTE**>(kPlayerList);
+    BYTE** slots = list ? &At<BYTE*>(list, 0x24) : nullptr;
+    BYTE* me = Solo();
+    int solo = SoloSlot();
+    bool swap = slots && me && solo != 0 && !slots[0] && slots[solo] == me;
+    DWORD control = swap ? At<DWORD>(me, kPlControl) : 0;
+    if (swap) slots[0] = me;
+    fn();
+    if (swap) {
+        slots[0] = nullptr;
+        if (At<DWORD>(me, kPlControl) != control) {
+            Log("Ndesu AI %p: player's control flag changed in slot 0 (%lu -> %lu), put back", intel, control,
+                At<DWORD>(me, kPlControl));
+            At<DWORD>(me, kPlControl) = control;
+        }
+    }
+    FillTarget(intel);
+}
+
+void __fastcall Think(BYTE* self, void*) {
+    AsPlayer0(self, [&] { ThisCall(kThink, self); });
+}
+
+// +0x48 (0x9ABF80, (state)): the state change. Starting the walk, it reads player 0's position as the
+// destination and skips it when slot 0 is empty, so as Sheva the walk stopped after about 250 units.
+void __fastcall SetState(BYTE* self, void*, int state) {
+    AsPlayer0(self, [&] { ThisCall(kSetState, self, state); });
+}
+
+void __fastcall Reset(BYTE* self, void*) {  // +0x68 (0x9AB790): target = player 0
+    AsPlayer0(self, [&] { ThisCall(kReset, self); });
+}
+
+void __fastcall Restart(BYTE* self, void*) {  // +0x6C (0x9AC660), which can run 0x9AB7C0 (player 0's checks)
+    AsPlayer0(self, [&] { ThisCall(kRestart, self); });
+}
+
+void PatchIntel(DWORD* copy) {
+    copy[kThinkSlot] = reinterpret_cast<DWORD>(&Think);
+    copy[kSetStateSlot] = reinterpret_cast<DWORD>(&SetState);
+    copy[kResetSlot] = reinterpret_cast<DWORD>(&Reset);
+    copy[kRestartSlot] = reinterpret_cast<DWORD>(&Restart);
+}
+
 void PatchBulb(DWORD* copy) { copy[kHitAppliedSlot] = reinterpret_cast<DWORD>(&BulbHitApplied); }
 
 }  // namespace
 
-// Watcher thread: once a second, patch Ndesu and his bulbs if they are on the unit lists.
+// Watcher thread, every tick (10 ms): patch Ndesu, his bulbs and his AI as soon as they are on the unit lists.
+// The AI has to have a target before Ndesu's opening walk starts: the walk's length is set then, and caught
+// 0.1 s late (a 1 s scan) he walked a few steps and attacked from 6645 instead of about 5846 (2026-11-04).
 void NdesuTick() {
-    static DWORD lastScan;
-    if (GetTickCount() - lastScan < 1000) return;
-    lastScan = GetTickCount();
     ForEachUnit([&](BYTE* u) {
         if (At<DWORD>(u, 0) == kNdesuVtable) PatchObject(u, kNdesuVtable, PatchNdesu);
         if (At<DWORD>(u, 0) == kBulbVtable) PatchObject(u, kBulbVtable, PatchBulb);
+        if (At<DWORD>(u, 0) == kIntelVtable && PatchObject(u, kIntelVtable, PatchIntel)) g_intel = u;
+        if (u == g_intel && At<DWORD>(u, 0) >= 0x1928000) FillTarget(u);  // still on our vtable copy
     });
 }

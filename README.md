@@ -277,7 +277,8 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
   then copies that player into the target (`+0x2C`), and a later -1 pick leaves it. Raising the count instead
   crashes (`0x731A94` reads an empty slot's position). That read is the 1-2 incinerator's area controller
   (`aS103`, vtbl `0xf53668`, `[[0x1234578]+0x3830]`) pushing players out of the door's way, which crashed as
-  Sheva too; its update (`+0x1c`) runs with the player in slot 0. Its intro walk (`+0x20c0`, action 0x21) is vanilla: it
+  Sheva too; its update (`+0x1c`) runs with the player copied into slot 0 (also left in their own, as at
+  Ndesu, so other threads' slot scans never miss them). Its intro walk (`+0x20c0`, action 0x21) is vanilla: it
   ends at RSF 9, set by `pulldown_demo` after shooting its arm off (RSF 1). The cutscene after the incinerator
   (scenes 1610/1620) ends in a state (`0xaf1470` enter / `0xaf1990` update / `0xaf1c80` exit) that plays the
   closing shot on `getPlayer(0)`'s camera and waits for it (camera `+0x162`); as Sheva it froze on the last frame.
@@ -303,6 +304,14 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
   and his bulbs (`uEm4502`, `0xf83b90`) get `+0x200` (called right after the cooldown is armed) replaced: it
   shortens the new cooldown by (1/30 s - frame time). Main bulb damage per exposure at 120 fps went from about
   8,400-8,700 to 10,350 (30 fps: 9,430).
+- **Ndesu as Sheva** (`ndesu.cpp`): his AI (`uEmIntel45`, vtable `0xf96c80`, `+0x280` = Ndesu) keeps its target in
+  `+0x2c` and Ndesu's `+0x1ba4`, and about ten places in it fill both with `getPlayer(0)`, which is empty as Sheva:
+  after his opening walk he waited forever. The walk was short too: the state change (`+0x48`, `0x9abf80`) takes
+  player 0's position as the destination and skips it when slot 0 is empty, so he attacked from 6645 instead of
+  about 5846. The AI's think (`+0x94`), state change and resets (`+0x68`, `+0x6c`) run with the player also in
+  slot 0 (never moved out of their own: other threads scan the slots meanwhile, and a move let the pad
+  rumble's "first human player" scan `0x7e6290` find nobody and crash at `0xb8a458`). An empty target is filled
+  with the player after each and every 10 ms (the AI is patched within 10 ms of appearing).
 - **Wesker phase 1** (6-3, `uEm80` `0xf8be60`, `uEm81` `0xf8c300`) (`wesker.cpp`): press `+0x230`
   (`0x9084b0`) -> `+0x234` (`0x9085e0`, (player, type, result)); type 1 hold (action 0x6a, holder `+0x1f64`),
   type 2 inject (only while `+0x10e0` == 0x6a; injector = presser). After the player has held him 1 s with no

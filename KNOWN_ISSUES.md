@@ -42,6 +42,7 @@ softlocks that aren't listed here. Saves are backed up automatically to `re5_sol
 - Pulleys and partner voice lines
 - The boat's pad remap and hint box
 - DirectInput pads
+- Ndesu as Sheva through the whole fight (the walk-in and first attacks work, 2026-11-04)
 - Ndesu's crouch as Sheva, which uses Chris's values as a guess
 - Linux and Proton, including the launcher's Wine setup and the boat's XInput hook
 

@@ -14,7 +14,9 @@
 // The 1-2 incinerator's area controller (aS103) has the same blind spot: its update (vtable +0x1C, 0x730460)
 // pushes every player in slots 0..count-1 out of the door's way and reads slot 0's position without a check
 // (0x731A94), so as Sheva it crashed when the incinerator closed. For that update only, slot 0 holds the
-// player, as it does when playing as Chris.
+// player too, as it does when playing as Chris. The player stays in their own slot as well: other threads scan
+// the slots meanwhile, and moving the player (fill 0, empty 1) could let a scan miss them (at Ndesu that crashed
+// the pad rumble's "first human player" lookup, 0x7E6290; changed here to match, 2026-11-04).
 //
 // The cutscene after it (scenes 1610 and 1620) ends in a state whose enter, update and exit (0xAF1470, 0xAF1990,
 // 0xAF1C80) take slot 0's camera without asking who is playing: enter plays the closing shot on it, update waits for
@@ -40,9 +42,9 @@ void __fastcall AreaUpdate(BYTE* area, void*) {
     BYTE** slots = players ? &At<BYTE*>(players, 0x24) : nullptr;
     int solo = SoloSlot();
     bool swap = slots && solo != 0 && !slots[0] && player && slots[solo] == player;
-    if (swap) slots[0] = player, slots[solo] = nullptr;
+    if (swap) slots[0] = player;  // a copy: the player never leaves their own slot (see below)
     ThisCall(reinterpret_cast<DWORD*>(kS103Vtable)[kAreaUpdateSlot], area);
-    if (swap) slots[solo] = player, slots[0] = nullptr;
+    if (swap) slots[0] = nullptr;
 }
 
 void PatchArea(DWORD* copy) { copy[kAreaUpdateSlot] = reinterpret_cast<DWORD>(&AreaUpdate); }
