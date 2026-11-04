@@ -158,6 +158,7 @@ void PlaceAt(BYTE* unit, float x, float y, float z) {
 
 void Tick() {
     FilterTick();  // an option of its own, also in vanilla co-op
+    BorderlessTick();  // the same
     BackupTick();  // also in record mode
     PlayerTick();  // likewise (the 120fps fix)
     if (RecordMode()) {  // vanilla co-op, only watch the jumps
@@ -208,7 +209,7 @@ void Tick() {
     LiftTick();
     JeepTick();
     NdesuTick();
-    // EnemyHpTick();  // Ndesu's old solo tuning (enemyhp.cpp): off, the fight runs at its default values
+    EnemyHpTick();  // half health for Ndesu, a launcher option (enemyhp.cpp)
     NdesuEaseTick();
     NdesuWatchTick();
     WeskerTick();

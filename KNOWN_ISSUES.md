@@ -43,6 +43,8 @@ softlocks that aren't listed here. Saves are backed up automatically to `re5_sol
 - The boat's pad remap and hint box
 - DirectInput pads
 - Ndesu as Sheva through the whole fight (the walk-in and first attacks work, 2026-11-04)
+- The "Ndesu at half health" option in live play
+- The borderless option on monitors other than 4K, and with more than one monitor (the window fits the one it is on)
 - Ndesu's crouch as Sheva, which uses Chris's values as a guess
 - Linux and Proton, including the launcher's Wine setup and the boat's XInput hook
 

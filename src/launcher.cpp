@@ -13,6 +13,7 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <shobjidl.h>
 #include <tlhelp32.h>
 #include <dwmapi.h>
@@ -43,6 +44,8 @@ constexpr Setting kSettings[] = {
     {L"re5_solo_sheva.txt", L"Play as Sheva (Chris is removed instead)"},
     {L"re5_solo_record.txt", L"Vanilla co-op (the mod steps aside, Sheva's AI comes back)"},
     {L"re5_solo_nofilter.txt", L"Remove the colour filter (no green/yellow tint)"},
+    {L"re5_solo_ndesuhalf.txt", L"Ndesu at half health (2-3 boss)"},
+    {L"re5_solo_borderless.txt", L"Borderless window (keeps running when you tab out)"},
     {L"re5_solo_120fps.txt", L"120fps fix (no getting stuck on scenery above 60 fps)"},
     {L"re5_solo_debug.txt", L"Debug keys (F9 / F10)"},
     {L"re5_solo_trace.txt", L"Script tracer (writes level-script steps to re5_solo.log)"},
@@ -52,6 +55,7 @@ constexpr int kSettingCount = sizeof kSettings / sizeof kSettings[0];
 enum Id { kIdFolder = 100, kIdBrowse, kIdStatus, kIdInstall, kIdUninstall, kIdPlay, kIdOpen, kIdSetting = 200 };
 
 HWND g_window, g_folder, g_status, g_install, g_uninstall, g_play, g_settings[kSettingCount];
+void SetFullScreen(bool full);
 std::wstring g_game;  // folder with re5dx9.exe, no trailing backslash
 
 std::wstring Path(const wchar_t* name) { return g_game + L"\\" + name; }
@@ -471,6 +475,7 @@ void Uninstall() {
     bool running = GameRunning();
     if (!Remove(Path(kLoader))) return Fail(L"Could not remove dinput8.dll.");
     DeleteFileW(Path(kCore).c_str());
+    if (Exists(Path(L"re5_solo_borderless.txt"))) SetFullScreen(true);
     for (const auto& s : kSettings) DeleteFileW(Path(s.file).c_str());
     RemoveSceneFiles(g_game);
     if (Exists(Path(kBackup)) && !Exists(Path(kLoader))) MoveFileW(Path(kBackup).c_str(), Path(kLoader).c_str());
@@ -483,9 +488,20 @@ void Uninstall() {
                 L"RE5 Solo", MB_ICONINFORMATION);
 }
 
+// The borderless option needs the game in a window: its config.ini (Documents\CAPCOM\RESIDENT EVIL 5) gets
+// FullScreen=OFF with it, and ON again without it.
+void SetFullScreen(bool full) {
+    PWSTR docs = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &docs))) return;
+    std::wstring ini = std::wstring(docs) + L"\\CAPCOM\\RESIDENT EVIL 5\\config.ini";
+    CoTaskMemFree(docs);
+    if (Exists(ini)) WritePrivateProfileStringW(L"DISPLAY", L"FullScreen", full ? L"ON" : L"OFF", ini.c_str());
+}
+
 void ToggleSetting(int i) {
     std::wstring path = Path(kSettings[i].file);
     bool on = !g_checked[i];
+    if (!wcscmp(kSettings[i].file, L"re5_solo_borderless.txt")) SetFullScreen(!on);
     if (on) {
         HANDLE f = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (f == INVALID_HANDLE_VALUE) Fail(L"Could not save the setting.");

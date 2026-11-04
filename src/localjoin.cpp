@@ -63,10 +63,24 @@ void KeepOffJoinPages(BYTE* pause) {
     }
 }
 
+// The closed menu opens when 0xA2D0C0 says so: Start pressed, or the window not in front (0x77F4B0: sMain's
+// not-minimised / foreground / focus bytes, set from Windows each frame by 0x783AF0). With the borderless option
+// the window counts as in front for the update's call only, so tabbing out no longer pauses.
+constexpr DWORD kMenuState = 0x14;                                     // 0 = closed
+constexpr DWORD kMinimised = 0x10548, kForeground = 0x10549, kFocus = 0x1054A;  // on sMain [kGame]
+
 void __fastcall PauseUpdate(BYTE* self, void*) {
     bool solo = !RecordMode() && !Partner();
     if (solo) KeepOffJoinPages(self);
+    auto game = *reinterpret_cast<BYTE**>(kGame);
+    bool fake = game && KeepRunningUnfocused() && At<BYTE>(self, kMenuState) == 0;
+    BYTE saved[3] = {};
+    if (fake) {
+        memcpy(saved, &At<BYTE>(game, kMinimised), 3);
+        At<BYTE>(game, kMinimised) = 0, At<BYTE>(game, kForeground) = 1, At<BYTE>(game, kFocus) = 1;
+    }
     ThisCall(kPauseUpdate, self);
+    if (fake) memcpy(&At<BYTE>(game, kMinimised), saved, 3);
     if (solo) KeepOffJoinPages(self);
 }
 
@@ -76,8 +90,8 @@ void PatchPause(DWORD* copy) { copy[kPauseUpdateSlot] = reinterpret_cast<DWORD>(
 
 // Watcher thread: give each pause manager (a new one each time the game makes one) the copy.
 void PauseTick() {
-    if (RecordMode() || Partner()) return;
-    NoDropIn();
+    if ((RecordMode() || Partner()) && !KeepRunningUnfocused()) return;
+    if (!RecordMode() && !Partner()) NoDropIn();
     auto owner = *reinterpret_cast<BYTE**>(kSceneOwner);
     auto scene = owner ? At<BYTE*>(owner, kScene) : nullptr;
     auto pause = scene ? At<BYTE*>(scene, kPauseMenu) : nullptr;

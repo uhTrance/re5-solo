@@ -46,6 +46,8 @@ void DebugTick();
 void ScriptTick();
 void ZoneTick();
 void FilterTick();
+void BorderlessTick();
+bool KeepRunningUnfocused();  // borderless.cpp: the borderless option
 void UroborosTick();
 void BackupTick();
 void InventoryTick();

@@ -293,7 +293,9 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
 - **Ndesu tuning** (`enemyhp.cpp`, `NdesuEaseTick`): his health, gauges and bulbs are at their default values. His
   thrown boulder (`uWp78`) has 2600 health instead of 5200. The attack stop values at `+0x1f54` for the kick, slam,
   pole swing and tackle (1500, 2600, 1200, 6000) are 10% lower, caught at their exact loaded values. The older
-  health, gauge and bulb scaling (`EnemyHpTick`) is still in the file but off. An attack's stop is checked only
+  With the launcher's "Ndesu at half health" option (`re5_solo_ndesuhalf.txt`, `EnemyHpTick`) his
+  body health (`+0x1364`/`+0x1366`) and every bulb's health (`+0x1f50`, halved on each re-arm) are halved; his
+  stagger gauges stay at their defaults. An attack's stop is checked only
   on the hit that takes `+0x1f54` from above 0 to 0 or below, and only while the stop window (`+0x448` bit
   `0x2000`) is open; a stop used up before the window opened let the attack land, so until it opens the value is
   held at 1.
@@ -346,6 +348,24 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
   within a frame; the mod's vtable copy clears them inside +0x18, before the original runs.
 - New areas' filters are hooked within 100 ms. `sLightLinker::ViewFilter` +7 (`mEnableColorCorrect`) does nothing
   visible.
+
+## Borderless window option (`borderless.cpp`, `localjoin.cpp`, `re5_solo_borderless.txt`)
+
+- Tabbing out stopped the game in two ways. In exclusive fullscreen, `WM_ACTIVATEAPP` (`0x423dbe`) minimises the
+  window (`ShowWindow` 7 while `[0x12345d4]+0x21`, the fullscreen flag, is set); minimised, the main loop's device
+  check (`0x453fd0`) fails and no frame runs. The launcher sets `FullScreen=OFF` in
+  `Documents\CAPCOM\RESIDENT EVIL 5\config.ini` with the marker (and `ON` again when it is cleared or on
+  uninstall); the watcher takes the window's frame off and fits it to its monitor.
+- The main loop runs without focus anyway (`0x423a02`: it only sleeps when both `[0x12337dc]+0x20`, set by
+  `WM_ACTIVATEAPP`, and `+0x21` are 0; `+0x21` is set).
+- The pause manager's update (`0xa308c0`) opens the menu (`+0x14` 0 -> 1) when `0xa2d0c0` says so: Start, or the
+  window not in front (`0x77f4b0`: sMain `+0x10548` minimised, `+0x10549` foreground, `+0x1054a` focus, set from
+  `IsIconic`/`GetForegroundWindow`/`GetFocus` each frame by `0x783af0`). With the option, the mod's copy of that
+  update sets those three to "in front" for the call while the menu is closed and puts them back after; tabbing
+  out no longer pauses (confirmed 2026-11-04). Pad input still stops while the window is behind (`0x7b5cb7`).
+- Dead ends: the "pause requested" byte `[0x1234584]+0x2030`, scene mode `[[0x1234578]+0x382c]+4` and the pad
+  table's connected bytes (`[0x11b1dd8]+0x80+0x20*pad`) don't change on tab-out; holding `[0x12337dc]+0x20` at 1
+  still paused.
 
 ## 120fps fix option (`snag.cpp`, `re5_solo_120fps.txt`)
 
