@@ -1,24 +1,30 @@
 # Known issues
 
-Current as of the 2026-11-02 v4 package. The mod has not had a full playthrough of every chapter, so expect
-softlocks that aren't listed here. Saves are backed up automatically to `re5_solo_saves` next to the game's exe.
+Current as of 1.0.0 (2026-11-08). The mod has not had a full playthrough of every chapter, so expect softlocks
+that aren't listed here. Saves are backed up automatically to `re5_solo_saves` next to the game's exe.
 
 ## Open bugs
 
 - **Items can be duplicated through Organize (seen in 5-3, playing as Sheva).** Take items off the absent
   character or give one to the player, click Ready, die, then choose Continue: the absent character has the old
-  items again and the player keeps theirs. v4 fixed this for Restart from Checkpoint, but it may still happen on
-  this route. A further fix is in the repo (any copy that changes is adopted, with or without a player) but
-  hasn't been retested on this route or packaged. It isn't known yet whether this is specific to 5-3, where Jill
-  may be involved.
+  items again and the player keeps theirs. v4 fixed this for Restart from Checkpoint. 1.0.0 has a further fix (any
+  copy that changes is adopted, with or without a player), but it hasn't been retested on this route. It isn't
+  known yet whether this is specific to 5-3, where Jill may be involved.
 - **Taking every item off the absent character may not stick.** If the level's copy of the loadout is empty at the
   same time, this looks the same as the wipe a chapter load does, so the items come back. Found by reading the code,
   not seen in play.
+- **The absent character's loadout across a chapter change** may need more work. Switching character in the menu
+  wiped the other character's weapons before 1.0.0; that is fixed.
+- **3-1 airboat on other people's controllers:** a tester's pad still couldn't drive the boat. The mod remaps the
+  boat's controls for XInput pads and for DirectInput pads (from the game's `config.ini` layout); DirectInput pads
+  haven't been tested at all.
+- **2-3 Ndesu as Sheva: ducking may not always dodge.** The game only ever crouches player 0 (Chris) on the duck
+  prompt; as Sheva the mod plays the same crouch on her, with Chris's values as a guess. She seems to get hit
+  sometimes anyway.
 - **2-3 jeep:** a stray orange aim arc shows on screen.
 
 ## Not handled or not checked
 
-- **Co-op climbs and ladders**, such as the ladder in 3-1, have no solo handling written for them.
 - **The Jill fight (5-3)** has no solo handling written for it and hasn't been checked for co-op-only moves.
 - **Playing as Sheva:** the game's player count stays at 1 with only slot 1 filled, and 62 places read it. Enemies
   or objects that ignore Sheva, or crashes that only happen as Sheva, probably come from this. The cases found so far
@@ -28,20 +34,9 @@ softlocks that aren't listed here. Saves are backed up automatically to `re5_sol
 
 ## Not tested
 
-- 5-2 levers with the mod's own fix (both on after one pull) from a fresh checkpoint; setting it by hand worked
-- The absent character's loadout across a chapter change
-- 4-1 as Sheva
+- Both DLC episodes (Lost in Nightmares and Desperate Escape)
 - The take-all gap on Organize (see above)
-- The latest Ndesu attack changes, in live play (tackle and overhead pole swing)
-- Ndesu's hit cooldown fix with weapons other than the jeep turret
-- Elevators through the mod's own code (the same write done by hand worked)
-- Pulleys and partner voice lines
-- The boat's pad remap and hint box
-- DirectInput pads
-- Ndesu as Sheva through the whole fight (the walk-in and first attacks work, 2026-11-04)
-- The "Ndesu's main bulb at half health" option in live play
 - The borderless option on monitors other than 4K, and with more than one monitor (the window fits the one it is on)
-- Ndesu's crouch as Sheva, which uses Chris's values as a guess
 - Linux and Proton, including the launcher's Wine setup and the boat's XInput hook
 
 ## Limitations
