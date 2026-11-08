@@ -74,6 +74,9 @@ void LeverTick() {
                 g_marked = other;
                 Log("lever %p: player is near, partner lever %d marked pulled", nearest, other);
             }
+            // A checkpoint zone where the partner would stand (6-3) fires for the player (zones.cpp).
+            if (BYTE* partner = At<BYTE*>(nearest, kPartner))
+                ForceCheckpointZonesNear(At<float>(partner, 0x30), At<float>(partner, 0x38), kNear);
         }
     }
     if (!pulled[0] && !pulled[1]) g_marked = -1;  // the game reset the pair

@@ -57,8 +57,12 @@ bool AimHeld() {
     if (pid != GetCurrentProcessId()) return false;
     if (GetAsyncKeyState(VK_RBUTTON) & 0x8000) return true;
     if (DInputAimHeld()) return true;  // the aim button on a DirectInput pad (dinput.cpp)
-    BYTE state[16] = {};  // XINPUT_STATE: packet, buttons(2), LT(1), RT(1), ...
-    return RawXInputGetState(0, state) == ERROR_SUCCESS && state[7] > 64;  // right trigger = aim; the real pad (xinput.cpp)
+    // Right trigger = aim, on the real pad (xinput.cpp), in whichever XInput slot it is connected.
+    for (DWORD user = 0; user < 4; ++user) {
+        BYTE state[16] = {};  // XINPUT_STATE: packet, buttons(2), LT(1), RT(1), ...
+        if (RawXInputGetState(user, state) == ERROR_SUCCESS && state[7] > 64) return true;
+    }
+    return false;
 }
 
 void SetSeat(BYTE* boat, int shift, int slot) {

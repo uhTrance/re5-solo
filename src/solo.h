@@ -29,6 +29,7 @@ void SplitTick();
 void ElevatorTick();
 void TwistTick();
 void CollapseTick();
+bool CollapseDone();  // collapse.cpp: the 4-2 collapse's QTE is over
 void PulleyTick();
 void VoiceTick();
 void CrankTick();
@@ -45,6 +46,7 @@ void WeskerTick();
 void DebugTick();
 void ScriptTick();
 void ZoneTick();
+int ForceCheckpointZonesNear(float x, float z, float radius);
 void FilterTick();
 void BorderlessTick();
 bool KeepRunningUnfocused();  // borderless.cpp: the borderless option

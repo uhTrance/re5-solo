@@ -92,6 +92,37 @@ void ZoneTick() {
     });
 }
 
+// Checkpoint zones that a two-man lever's other side stands in (6-3, area 505: the scenario zone with scene
+// 11229 is a 250 x 250 box around the right lever, "any player inside", enabled when the pair goes; the level
+// script moves the scene on to 11230 straight after, so it only saves if someone is standing in it then). Solo,
+// the player pulls the other lever and no checkpoint is made. Zone +0x1C bit 0x10 makes a scenario zone fire
+// with nobody inside (0xCC0997), so it is set on such zones near the lever the mod marks for the player.
+// cScenario: +4 definition (+8 type, 3 = fire on a player inside; +0xC 0 = any of; +0x14 scene, 99999 = none),
+// +8 its cAreaHit (centre at +0x30), +0x1C flags (bit 2 = off, bit 3 = fired).
+int ForceCheckpointZonesNear(float x, float z, float radius) {
+    auto root = *reinterpret_cast<BYTE**>(kAreaRoot);
+    if (!root) return 0;
+    int forced = 0;
+    __try {
+        ForEachScenarioZone(root, [&](BYTE* zone) {
+            BYTE* def = At<BYTE*>(zone, 4);
+            BYTE* area = At<BYTE*>(zone, 8);
+            if (!def || !area || At<DWORD>(def, 8) != 3 || At<DWORD>(def, 0xC) != 0) return;
+            DWORD scene = At<DWORD>(def, 0x14);
+            if (scene == 0 || scene >= 99999) return;
+            float dx = At<float>(area, 0x30) - x, dz = At<float>(area, 0x38) - z;
+            if (dx * dx + dz * dz > radius * radius) return;
+            volatile LONG& flags = At<volatile LONG>(zone, 0x1C);
+            if (flags & 0x18) return;  // forced already, or fired
+            _InterlockedOr(&flags, 0x10);
+            ++forced;
+            Log("zones: checkpoint zone %p (scene %lu) at the other lever fires without the player inside", zone,
+                scene);
+        });
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    return forced;
+}
+
 namespace {
 
 void UnwrapZones() {

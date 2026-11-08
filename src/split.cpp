@@ -55,6 +55,19 @@ void SplitTick() {
     if (GetTickCount() - last < 250) return;
     last = GetTickCount();
     __try {
+        if (SoloSlot() != 0) {
+            // Sheva solo: she is slot 1 and already stays put on point 1, which faces the record's rotation plus
+            // its offset; the rewrite below would turn her a second time (about 180 degrees). Undo it if a Chris
+            // game (or an older build) left it in the area's records.
+            BYTE* moved = StartRecord(kNearPoint);
+            if (!moved || std::fabs(At<float>(moved, 0x14) - (kFarYaw + At<float>(moved, 0x34))) > 0.01f) return;
+            for (int i = 0; i < 3; ++i) {
+                At<float>(moved, 4 * i) = kFarRecord[i];
+                At<float>(moved, 0x10 + 4 * i) -= At<float>(moved, 0x30 + 4 * i);
+            }
+            Log("4-1 split: start record %p put back (Sheva solo: she stays put facing the game's way)", moved);
+            return;
+        }
         BYTE* record = StartRecord(kFarRecord);  // once rewritten its base no longer matches: done
         float point[3];
         if (record) {
@@ -89,8 +102,23 @@ void SplitFrame(BYTE* player) {
         }
         for (DWORD off : kPositionCopies)
             for (int i = 0; i < 3; ++i) At<float>(player, off + 4 * i) = target[i];
-        Log("4-1 split: player sent across (%.0f %.0f %.0f), moved to the partner's point %.0f %.0f %.0f%s", pos[0],
-            pos[1], pos[2], target[0], target[1], target[2], record ? "" : " (record not found: where the player stood)");
+        // Facing too: the far point faces across (yaw +0x14, about -1.7); the partner's point faces that plus the
+        // offset at +0x34 (about -3.0), back the way the pair came. Rotation quaternion at +0x40 (x y z w), yaw only.
+        float& qy = At<float>(player, 0x44);
+        float& qw = At<float>(player, 0x4C);
+        if (record) {
+            float yaw = At<float>(record, 0x14) + At<float>(record, 0x34);
+            qy = std::sin(yaw / 2);
+            qw = std::cos(yaw / 2);
+        } else {
+            float y = qy;  // turned 180 degrees
+            qy = qw;
+            qw = -y;
+        }
+        At<float>(player, 0x40) = At<float>(player, 0x48) = 0.0f;
+        Log("4-1 split: player sent across (%.0f %.0f %.0f), moved to the partner's point %.0f %.0f %.0f, facing "
+            "%.2f%s", pos[0], pos[1], pos[2], target[0], target[1], target[2], 2 * std::atan2(qy, qw),
+            record ? "" : " (record not found: where the player stood, turned round)");
     }
     last = player;
     for (int i = 0; i < 3; ++i) prev[i] = At<float>(player, 0x30 + 4 * i);

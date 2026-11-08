@@ -55,7 +55,6 @@ Marker files next to the exe (read when the core loads):
 
 | File | Effect |
 |---|---|
-| `re5_solo_sheva.txt` | Play as Sheva; Chris's slot is closed |
 | `re5_solo_record.txt` | Vanilla co-op: Sheva spawns, nothing is hooked; co-op jump landings are logged (`record.cpp`) |
 | `re5_solo_debug.txt` | F9 freezes enemies (unit move line 9 speed `+0x14` = 0); F10 arms a hardware write watch on the player's `+0x30` that logs any teleport over 300 units with the writer's EIP and callers |
 | `re5_solo_trace.txt` | Script tracer: logs each script function's first run per param, scans for level scripts, "hot:" lines = calls per 5 s |
@@ -101,8 +100,9 @@ Marker files next to the exe (read when the core loads):
 - With the solo flag, doors, gates and anything else using the shared ready handler work for one player.
   Objects with their own hard-coded count of 2 are handled below.
 - The solo slot is the chosen character (`SoloSlot` / `SoloPlayer` / `Partner` / `PartnerSlot` in
-  `objhook.h`); every fix uses it rather than slot 0. `re5_solo_sheva.txt` holds the chosen-character field
-  at 1 while no player exists.
+  `objhook.h`); every fix uses it rather than slot 0. Playing as Sheva is the game's own
+  character choice; the old `re5_solo_sheva.txt` (forced Sheva before she is unlocked) is gone, and the
+  launcher deletes it on install and uninstall.
 - Online join requests still arrive with slot 2 closed; they are left alone.
 - **No split screen** (`localjoin.cpp`): offline, a second pad pressing Start (switching between keyboard and
   controller does it) drops in as player 2: `0x723460` books the join (`0x720ce0`) and the game scene restarts
@@ -215,7 +215,10 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
   forward / LT reverse, and RT is also aim. While driving (state `0x6a`) the game sees RT = right stick up,
   LT = stick down, stick vertical centred; `boat.cpp` reads the real RT for aim. XInputGetState (IAT
   `0xf4a40c`) is Windows code, so hooking it is DRM-safe: chained onto Steam's jump when present, else
-  hotpatched via the int3 padding. DirectInput pads: button 7 (R2) is aim, right stick vertical is `lZ`.
+  hotpatched via the int3 padding. The aim check reads all four XInput slots.
+  DirectInput pads: the aim button and right-stick axis come from the game's own layout,
+  `Documents\CAPCOM\RESIDENT EVIL 5\config.ini` `[JOYPAD]` `RB` (a DualSense: 7, R2) and `RSTICK_VERT`
+  (X/Y/Z/RX/RY/RZ/SLIDER0/1), not a fixed DualSense layout.
 - **2-3 jeep turret** (`jeep.cpp`, `uOmJeep` `0xff17b0`, `uOm1304` `0xff1960`): one `uIdCockpit01` per
   player at `+0x1974/+0x1978`; the partner's has no player (`+0x78`) and its first step reads that player's
   inventory, crashing on load. The empty cockpit gets the solo player.
@@ -224,6 +227,11 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
   (`0xb073c0`) reads player slot 1 outright; it is wrapped so slot 1 holds the solo player for that call. The
   callback registers and first runs inside `cActPlRun`'s start, so the hook goes in via `cActPlRun`'s type
   object (DTI `0x11ffde0`, create slot): each new `cActPlRun` gets a vtable whose start swaps the callback.
+- **4-2 Chris after the QTE** (`solo.cpp`, area 301, scene 6210+): Chris is taken out of the player list and
+  parked above the player instead of frozen. While the pause menu (`[[0x1234578]+0x382c]+0xe8`, state `+0x14`)
+  or the game-over screen (`[0x123457c]+0x2ff8`) is up he is put back, or Retry / Quit crashed on him. The
+  minimap (`uIdMap00` vtbl `0xfa6b48`, entries `+0x610`, 0x30 apart: player `+0x14`, arrow sprites
+  `+0x18..+0x20`, visibility byte `+8` each) drops his entry and hides the sprites of entries with no player.
 - **6-2 Uroboros chase** (`collapse.cpp`, `uOma00c_UroAction`): each press prompt (`cActAB` vtbl
   `0x100ce68`, update `0xb23340`) checks players 0 and 1 when its timer ends; a player passes on their
   `+0x18dc` bit or as AI (`+0x2da8 == 1`), an empty slot fails and leads to a hang. The update runs with the
@@ -242,6 +250,15 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
   requirement, in both the definition and the state's copy (every second). Only the copy decides scenario
   zones: the 3-1 dock checkpoint (`cScenarioArg_CHP`, which sets RSF 10 "on land") never fired as Sheva
   while it still read 0x13, so the marsh crocodiles never came.
+- **PlayerCheck** (`script.cpp`, cFSMOrder `+0x138`, `0xc37200`): picks a player by the condition's `+0x21`
+  (0-3 = that slot, straight from the list) and checks it (`0xc2c200`) to set a flag. An empty slot does
+  nothing: the 5-3 Wesker door checked player 0 and never opened as Sheva. In solo an empty slot's check runs
+  on the player (the mode byte swapped for the call), and level scripts are patched in solo, not only tracing.
+- **Checkpoint zones at two-man levers** (`zones.cpp`, `lever.cpp`): 6-3 (area 505) saves its checkpoint
+  (scene 11229) from a `cScenario` zone, a box around the right lever that fires on any player inside when
+  the pair goes; the script moves the scene to 11230 straight after. Pulling the left lever alone left it
+  empty. Zone `+0x1c` bit `0x10` fires it with nobody inside (`0xcc0997`), so it is set on scenario zones
+  (type 3, any of, a real scene) within reach of the lever the mod marks for the player.
 - **Player scripts** (`script.cpp`): `cFSMOrderPlayer` (vtbl `0x1040c80`) at player `+0x1890`. `AreaHitPl`
   (`+0x184`, `0xc40830`) bails with no partner; the player is made his own partner for that call only.
   Forcing its result true takes the partner's branch instead.
@@ -286,6 +303,14 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
   un-froze the game and the flags cleared). Not the incinerator switch: its camera (`0xb35980`, `+0x17fc`) only
   runs when `+0x19a4 >= 0`, which it never is here.
 
+- **Uroboros Mkono** (5-2, `uEm41` vtbl `0xf7d160`, AI `uEmIntel41` `0xf960f0`): its AI shares `uEmIntel40`'s
+  target pick, so it gets the same target-slot fix. Part hits only do full damage while it is open
+  (`cEm41ActDisclose`/`DiscloseLoop`, exposed `+0x20b6`). It opens when flag 8 of `+0x1e2c` is set, which its
+  hit handler (`+0x208`, `0x8b4d80`) does once the heat `+0x2148` passes 2200, and stays open while the heat
+  is above 0. Each flame hit added `(30 - n) * 3` times the unit's frame step (`+0x10`, 0.25 at 120 fps), but
+  hits come at the same rate at any frame rate while the heat cools per second, so at 120 fps it never opened
+  and the flamethrower did 1 damage. The hook divides each hit's heat by `+0x10` * timer `+0x2c` and sets flag
+  8 as the handler would.
 - **Ndesu** (2-3, `uEm45` live vtbl `0xf83828`; `0xf832e0` is another uEm45 vtable and patching it does
   nothing) (`ndesu.cpp`): prompt press `+0x230` (`0x8e08b0`) marks `+0x1bb4` bit `0x40 << slot` and acts only
   with both; `+0x234` (`0x8e09b0`) runs the players' side (type 0 crouch is player 0 only; types 1/2 need
@@ -293,9 +318,9 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
 - **Ndesu tuning** (`enemyhp.cpp`, `NdesuEaseTick`): his health, gauges and bulbs are at their default values. His
   thrown boulder (`uWp78`) has 2600 health instead of 5200. The attack stop values at `+0x1f54` for the kick, slam,
   pole swing and tackle (1500, 2600, 1200, 6000) are 10% lower, caught at their exact loaded values. The older
-  With the launcher's "Ndesu at half health" option (`re5_solo_ndesuhalf.txt`, `EnemyHpTick`) his
-  body health (`+0x1364`/`+0x1366`) and every bulb's health (`+0x1f50`, halved on each re-arm) are halved; his
-  stagger gauges stay at their defaults. An attack's stop is checked only
+  With the launcher's "Ndesu's main bulb at half health" option (`re5_solo_ndesuhalf.txt`, `EnemyHpTick`)
+  the main bulb's health (`+0x1f50`) is capped at 13000 (armed at 26000); his body, other bulbs and stagger
+  gauges stay at their defaults. An attack's stop is checked only
   on the hit that takes `+0x1f54` from above 0 to 0 or below, and only while the stop window (`+0x448` bit
   `0x2000`) is open; a stop used up before the window opened let the attack land, so until it opens the value is
   held at 1.

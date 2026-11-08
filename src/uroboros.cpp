@@ -1,4 +1,4 @@
-// Uroboros (uEm40, 1-2 and later) targets for a player in slot 1.
+// Uroboros (uEm40, 1-2 and later; uEm41, Uroboros Mkono, 5-2) targets for a player in slot 1.
 //
 // Its AI (uEmIntel40) keeps a target slot (+0x2EC) and copies that player into its target (+0x2C) whenever the
 // slot is valid (0x99B115). The slot is re-picked when a timer (+0x2F0) runs out, by 0x99AEF0, which only looks
@@ -26,7 +26,9 @@
 
 namespace {
 
-constexpr DWORD kIntelVtable = 0xF95E60;  // uEmIntel40
+// uEmIntel40, and uEmIntel41 (Uroboros Mkono, 5-2 area 308), which shares its target pick and slot (logged
+// 2026-11-07: slot -1, no target, the boss standing still as Sheva).
+constexpr DWORD kIntelVtables[] = {0xF95E60, 0xF960F0};
 constexpr DWORD kTargetSlot = 0x2EC;
 
 constexpr DWORD kBioArea = 0x1234578, kCurrentArea = 0x3830;  // [[kBioArea] + kCurrentArea] = area controller
@@ -48,6 +50,36 @@ void __fastcall AreaUpdate(BYTE* area, void*) {
 }
 
 void PatchArea(DWORD* copy) { copy[kAreaUpdateSlot] = reinterpret_cast<DWORD>(&AreaUpdate); }
+
+// Uroboros Mkono (5-2) only opens up for the flamethrower at 30 fps. Its body opens (cEm41ActDisclose, which sets
+// exposed +0x20B6, the only time part hits do real damage) when the AI sees flag 8 in +0x1E2C, set by its hit handler
+// (vtable +0x208, 0x8B4D80) once a heat meter (+0x2148) passes 2200. Each flame hit adds (30 - n) * 3 times the
+// unit's frame step (vtable +0x9C: +0xFD4 * [timer] +0x2C * +0x10, 1 at 30 fps, 0.25 at 120), as if it were a
+// per-frame amount, while the meter cools per frame (0x8B8210) by the same amount per second at any frame rate.
+// Hits come at the same rate at any frame rate, so at 120 fps each adds a quarter as much and the meter never fills.
+// The hit's addition is divided by the frame part of the step (+0x10 and the timer's +0x2C; +0xFD4 is slow motion,
+// left in), and flag 8 set as the handler would.
+constexpr DWORD kMkonoVtable = 0xF7D160, kMkonoHitSlot = 0x208 / 4, kMkonoHit = 0x8B4D80;
+constexpr DWORD kHeat = 0x2148, kMkonoFlags = 0x1E2C, kExposed = 0x20B6, kUnitStep = 0x10;
+constexpr DWORD kTimer = 0x11B209C, kTimerStep = 0x2C;
+constexpr float kOpenHeat = 2200.0f;  // 0xF54D30
+constexpr DWORD kOpenFlag = 8;
+
+bool __fastcall MkonoHit(BYTE* self, void*, void* hit) {
+    float before = At<float>(self, kHeat);
+    bool r = ThisCall<bool>(kMkonoHit, self, hit);
+    float gain = At<float>(self, kHeat) - before;
+    auto timer = *reinterpret_cast<BYTE**>(kTimer);
+    float step = At<float>(self, kUnitStep) * (timer ? At<float>(timer, kTimerStep) : 1.0f);
+    if (gain > 0 && step > 0.01f && step != 1.0f) {
+        float heat = before + gain / step;
+        At<float>(self, kHeat) = heat;
+        if (!At<BYTE>(self, kExposed) && heat > kOpenHeat) At<DWORD>(self, kMkonoFlags) |= kOpenFlag;
+    }
+    return r;
+}
+
+void PatchMkono(DWORD* copy) { copy[kMkonoHitSlot] = reinterpret_cast<DWORD>(&MkonoHit); }
 
 }  // namespace
 
@@ -82,7 +114,10 @@ void UroborosTick() {
     }
     static BYTE* logged;  // each re-pick resets it, so log once per AI
     ForEachUnit([players](BYTE* u) {
-        if (At<DWORD>(u, 0) != kIntelVtable) return;
+        if (At<DWORD>(u, 0) == kMkonoVtable && PatchObject(u, kMkonoVtable, PatchMkono))
+            Log("uroboros mkono %p: flame heat no longer scaled by the frame rate", u);
+        DWORD vt = At<DWORD>(u, 0);
+        if (vt != kIntelVtables[0] && vt != kIntelVtables[1]) return;
         int slot = At<int>(u, kTargetSlot);
         if (slot >= 0 && slot < 4 && At<BYTE*>(players, 0x24 + 4 * slot)) return;
         At<int>(u, kTargetSlot) = SoloSlot();

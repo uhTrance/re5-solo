@@ -41,10 +41,9 @@ constexpr wchar_t kPlayUrl[] = L"steam://rungameid/21690";
 
 struct Setting { const wchar_t* file; const wchar_t* label; };
 constexpr Setting kSettings[] = {
-    {L"re5_solo_sheva.txt", L"Play as Sheva (Chris is removed instead)"},
     {L"re5_solo_record.txt", L"Vanilla co-op (the mod steps aside, Sheva's AI comes back)"},
     {L"re5_solo_nofilter.txt", L"Remove the colour filter (no green/yellow tint)"},
-    {L"re5_solo_ndesuhalf.txt", L"Ndesu at half health (2-3 boss)"},
+    {L"re5_solo_ndesuhalf.txt", L"Ndesu's main bulb at half health (2-3 boss, 13000)"},
     {L"re5_solo_borderless.txt", L"Borderless window (keeps running when you tab out)"},
     {L"re5_solo_120fps.txt", L"120fps fix (no getting stuck on scenery above 60 fps)"},
     {L"re5_solo_debug.txt", L"Debug keys (F9 / F10)"},
@@ -118,6 +117,7 @@ bool Remove(const std::wstring& path) {
 
 // Leftovers from earlier runs: renamed loaders and the loader's core copies. In-use ones just stay.
 void ClearLeftovers() {
+    DeleteFileW(Path(L"re5_solo_sheva.txt").c_str());  // a dropped option (forced Sheva); the game's menu picks her
     for (const wchar_t* pattern : {L"dinput8.dll.old*", L"re5_solo_core.loaded*.dll", L"re5_solo_core.dll.old*"}) {
         WIN32_FIND_DATAW find;
         HANDLE h = FindFirstFileW(Path(pattern).c_str(), &find);
@@ -514,42 +514,53 @@ void ToggleSetting(int i) {
 
 // --- window ----------------------------------------------------------------------------------------------
 //
-// Everything is drawn by us (owner-draw buttons and switches, a painted header) in a flat Windows 11 style
-// that takes its colours from Windows: the light/dark app setting and the user's accent colour.
+// The look is the "slate" theme of the LiveSplit web layout, as in the RE5 Save Manager: soft dark cards on a
+// blue-black page, one quiet blue accent (Install and Play get the current-split bar: an accent tint with a solid
+// left edge). Every control is drawn by us; the title bar takes the page colour (Windows 11).
 
-struct Theme {
-    COLORREF bg, field, border, text, muted, accent, accentHot, accentText, button, buttonHot, ok, warn, off;
-    bool dark;
-};
-
-Theme g_theme = {  // dark; light and the accent are filled in from Windows at startup
-    RGB(32, 32, 32), RGB(45, 45, 45), RGB(64, 64, 64), RGB(243, 243, 243), RGB(166, 166, 166),
-    RGB(76, 194, 255), RGB(110, 206, 255), RGB(0, 0, 0), RGB(55, 55, 55), RGB(66, 66, 66),
-    RGB(108, 203, 95), RGB(252, 225, 0), RGB(130, 130, 130), true};
-
-constexpr Theme kLight = {
-    RGB(243, 243, 243), RGB(255, 255, 255), RGB(214, 214, 214), RGB(26, 26, 26), RGB(96, 96, 96),
-    RGB(0, 103, 192), RGB(0, 90, 170), RGB(255, 255, 255), RGB(251, 251, 251), RGB(240, 240, 240),
-    RGB(15, 123, 15), RGB(157, 93, 0), RGB(140, 140, 140), false};
+// Slate (livesplit-web-layout themes.css): page #0e1014, cards rgb(24 27 33), text #e8eaed at 100%/75%,
+// hairlines white 8%, accent #7aa2f7.
+constexpr COLORREF kBg = RGB(14, 16, 20), kCard = RGB(24, 27, 33), kLine = RGB(42, 45, 51);
+constexpr COLORREF kText = RGB(232, 234, 237), kMuted = RGB(178, 180, 184), kDim = RGB(98, 102, 110);
+constexpr COLORREF kAccent = RGB(122, 162, 247), kAccentBar = RGB(40, 49, 67), kAccentBarHover = RGB(48, 60, 84);
+constexpr COLORREF kHover = RGB(32, 36, 43), kField = RGB(18, 20, 25);
+constexpr COLORREF kDanger = RGB(240, 118, 124);   // Uninstall
+constexpr COLORREF kOk = RGB(158, 206, 106), kWarn = RGB(229, 192, 123);  // status dot
 
 constexpr wchar_t kTitle[] = L"RE5 Solo Launcher";
-constexpr int kRadius = 6;  // corner radius of buttons and fields (logical px)
 int g_dpi = 96;
 int S(int px) { return MulDiv(px, g_dpi, 96); }
 
 HFONT g_titleFont, g_labelFont, g_buttonFont, g_smallFont;
-HBRUSH g_bgBrush, g_fieldBrush;
-HWND g_hot;           // control under the mouse
-int g_headerH, g_folderY, g_statusY, g_settingsY;
-RECT g_folderBox;
+HBRUSH g_cardBrush, g_fieldBrush;
+HWND g_hot;  // control under the mouse
+std::vector<RECT> g_cards;  // card rectangles in 96-dpi units (scaled when painted)
+RECT g_folderBox, g_header;
+int g_statusY, g_optionsLabelY, g_folderLabelY;
 
-HFONT Font(const wchar_t* face, int px, int weight) {
-    LOGFONTW lf{};
-    lf.lfHeight = -S(px);
-    lf.lfWeight = weight;
-    lf.lfQuality = CLEARTYPE_QUALITY;
-    wcscpy_s(lf.lfFaceName, face);
-    return CreateFontIndirectW(&lf);
+RECT Scaled(const RECT& r) { return RECT{S(r.left), S(r.top), S(r.right), S(r.bottom)}; }
+
+// Segoe UI Variable Text where Windows has it (the layout's font), else Segoe UI.
+const wchar_t* FontFace() {
+    static const wchar_t* face = [] {
+        LOGFONTW lf{};
+        lf.lfCharSet = DEFAULT_CHARSET;
+        wcscpy_s(lf.lfFaceName, L"Segoe UI Variable Text");
+        bool found = false;
+        HDC dc = GetDC(nullptr);
+        EnumFontFamiliesExW(dc, &lf, [](const LOGFONTW*, const TEXTMETRICW*, DWORD, LPARAM p) -> int {
+            *reinterpret_cast<bool*>(p) = true;
+            return 0;
+        }, reinterpret_cast<LPARAM>(&found), 0);
+        ReleaseDC(nullptr, dc);
+        return found ? L"Segoe UI Variable Text" : L"Segoe UI";
+    }();
+    return face;
+}
+
+HFONT Font(int pt, int weight) {
+    return CreateFontW(-MulDiv(pt, g_dpi, 72), 0, 0, 0, weight, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0,
+                       FontFace());
 }
 
 void Fill(HDC dc, const RECT& r, COLORREF c) {
@@ -557,12 +568,12 @@ void Fill(HDC dc, const RECT& r, COLORREF c) {
     FillRect(dc, &r, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
 }
 
-void Rounded(HDC dc, const RECT& r, COLORREF fill, COLORREF line) {
+// A slate card: rounded, flat, no border unless one is asked for.
+void Card(HDC dc, const RECT& r, COLORREF fill, COLORREF edge = CLR_INVALID, int radius = 10) {
     HGDIOBJ oldBrush = SelectObject(dc, GetStockObject(DC_BRUSH)), oldPen = SelectObject(dc, GetStockObject(DC_PEN));
     SetDCBrushColor(dc, fill);
-    SetDCPenColor(dc, line);
-    int d = S(kRadius) * 2;
-    RoundRect(dc, r.left, r.top, r.right, r.bottom, d, d);
+    SetDCPenColor(dc, edge == CLR_INVALID ? fill : edge);
+    RoundRect(dc, r.left, r.top, r.right, r.bottom, S(radius), S(radius));
     SelectObject(dc, oldBrush);
     SelectObject(dc, oldPen);
 }
@@ -575,71 +586,56 @@ void Text(HDC dc, const wchar_t* s, RECT r, HFONT font, COLORREF color, UINT for
     SelectObject(dc, old);
 }
 
-COLORREF Mix(COLORREF a, COLORREF b, int t, int n) {
-    return RGB((GetRValue(a) * (n - t) + GetRValue(b) * t) / n, (GetGValue(a) * (n - t) + GetGValue(b) * t) / n,
-               (GetBValue(a) * (n - t) + GetBValue(b) * t) / n);
-}
-
 bool IsPrimary(int id) { return id == kIdInstall || id == kIdPlay; }
 bool IsToggle(int id) { return id >= kIdSetting && id < kIdSetting + kSettingCount; }
+bool OnPage(int id) { return id == kIdOpen || id == kIdPlay; }  // the bottom row; everything else sits on a card
 
 // Owner-drawn controls are painted into a memory bitmap first (no flicker).
 void DrawControl(const DRAWITEMSTRUCT& item) {
-    const Theme& t = g_theme;
     RECT r = item.rcItem;
     int w = r.right - r.left, h = r.bottom - r.top;
     HDC dc = CreateCompatibleDC(item.hDC);
     HBITMAP bmp = CreateCompatibleBitmap(item.hDC, w, h), oldBmp = static_cast<HBITMAP>(SelectObject(dc, bmp));
-    RECT box{0, 0, w, h};
-    Fill(dc, box, t.bg);
     int id = static_cast<int>(item.CtlID);
+    RECT box{0, 0, w, h};
+    Fill(dc, box, OnPage(id) ? kBg : kCard);  // corners show what is behind
     bool disabled = item.itemState & ODS_DISABLED, pressed = item.itemState & ODS_SELECTED;
     bool hot = item.hwndItem == g_hot && !disabled, focus = item.itemState & ODS_FOCUS;
     wchar_t label[128];
     GetWindowTextW(item.hwndItem, label, 128);
-    if (IsToggle(id)) {  // a switch
+    if (IsToggle(id)) {  // a row like the layout's info rows: label left, a small switch right
         bool on = g_checked[id - kIdSetting];
-        int size = S(18), sw = S(38), y = (h - size) / 2;
-        RECT track{S(1), y, S(1) + sw, y + size};
-        COLORREF knobColor = on ? t.accentText : (hot ? t.text : t.muted);
-        COLORREF trackColor = hot ? t.accentHot : t.accent;
+        if (hot || focus) Card(dc, box, hot ? kHover : kCard, focus ? kLine : CLR_INVALID, 8);
+        int th = S(18), tw = S(34), ty = (h - th) / 2, tx = w - S(10) - tw;
+        COLORREF track = disabled ? kField : on ? (hot ? kAccentBarHover : kAccentBar) : kLine;
+        COLORREF edge = disabled ? kLine : on ? kAccent : (hot ? kDim : kLine);
         HGDIOBJ oldBrush = SelectObject(dc, GetStockObject(DC_BRUSH)), oldPen = SelectObject(dc, GetStockObject(DC_PEN));
-        SetDCBrushColor(dc, on ? trackColor : t.field);
-        SetDCPenColor(dc, on ? trackColor : knobColor);
-        RoundRect(dc, track.left, track.top, track.right, track.bottom, size, size);
-        int knob = size - S(8), kx = on ? track.right - S(4) - knob : track.left + S(4);
+        SetDCBrushColor(dc, track);
+        SetDCPenColor(dc, edge);
+        RoundRect(dc, tx, ty, tx + tw, ty + th, th, th);
+        int knob = th - S(8), kx = on ? tx + tw - S(4) - knob : tx + S(4);
+        COLORREF knobColor = disabled ? kDim : on ? kAccent : kMuted;
         SetDCBrushColor(dc, knobColor);
         SetDCPenColor(dc, knobColor);
-        Ellipse(dc, kx, y + S(4), kx + knob, y + S(4) + knob);
+        Ellipse(dc, kx, ty + S(4), kx + knob, ty + S(4) + knob);
         SelectObject(dc, oldBrush);
         SelectObject(dc, oldPen);
-        RECT tr{track.right + S(12), 0, w, h};
-        Text(dc, label, tr, g_labelFont, disabled ? t.off : t.text,
+        RECT tr{S(10), 0, tx - S(10), h};
+        Text(dc, label, tr, g_labelFont, disabled ? kDim : on ? kText : kMuted,
              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-        if (focus) {
-            RECT f{0, 0, w, h};
-            SetDCBrushColor(dc, t.border);
-            FrameRect(dc, &f, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+    } else {  // buttons are cards; Install and Play get the current-split bar
+        bool primary = IsPrimary(id) && !disabled;
+        COLORREF fill = primary ? (hot ? kAccentBarHover : kAccentBar) : (hot || !OnPage(id) ? kHover : kCard);
+        if (pressed) fill = primary ? kAccentBar : kLine;
+        if (disabled) fill = OnPage(id) ? kCard : kField;
+        Card(dc, box, fill, hot && !primary ? kLine : CLR_INVALID, 8);
+        if (primary) {  // 3px accent edge, inset like LiveSplit's
+            RECT e{0, S(4), S(3), h - S(4)};
+            Fill(dc, e, kAccent);
         }
-    } else {
-        bool primary = IsPrimary(id);
-        COLORREF fill = primary ? (hot ? t.accentHot : t.accent) : (hot ? t.buttonHot : t.button);
-        COLORREF line = primary ? fill : t.border;
-        COLORREF textColor = primary ? t.accentText : t.text;
-        if (pressed) fill = Mix(fill, t.bg, 1, 4);
-        if (disabled) {
-            fill = Mix(t.button, t.bg, 1, 2);
-            line = Mix(t.border, t.bg, 1, 2);
-            textColor = t.off;
-        }
-        RECT b{0, 0, w, h};
-        Rounded(dc, b, fill, line);
-        if (focus) {
-            RECT f{S(3), S(3), w - S(3), h - S(3)};
-            SetDCBrushColor(dc, primary ? t.accentText : t.muted);
-            FrameRect(dc, &f, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
-        }
-        Text(dc, label, b, g_buttonFont, textColor, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        if (focus) Card(dc, RECT{S(3), S(3), w - S(3), h - S(3)}, fill, kMuted, 6);
+        COLORREF color = disabled ? kDim : id == kIdUninstall ? kDanger : kText;
+        Text(dc, label, box, primary ? g_buttonFont : g_labelFont, color, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     }
     BitBlt(item.hDC, r.left, r.top, w, h, dc, 0, 0, SRCCOPY);
     SelectObject(dc, oldBmp);
@@ -648,29 +644,31 @@ void DrawControl(const DRAWITEMSTRUCT& item) {
 }
 
 void Paint(HDC dc, const RECT& client) {
-    const Theme& t = g_theme;
-    Fill(dc, client, t.bg);
-    int W = client.right, m = S(22);
-    Text(dc, kTitle, RECT{m, 0, W - m, g_headerH}, g_titleFont, t.text, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-    auto section = [&](const wchar_t* s, int y) {
-        Text(dc, s, RECT{m, y, W - m, y + S(18)}, g_smallFont, t.muted, DT_LEFT | DT_SINGLELINE);
-    };
-    section(L"Game folder", g_folderY - S(22));
-    section(L"Options", g_settingsY - S(24));
+    Fill(dc, client, kBg);
+    for (const RECT& c : g_cards) Card(dc, Scaled(c), kCard);
+    // Header, like LiveSplit's game and category lines.
+    RECT h = Scaled(g_header);
+    Text(dc, L"Resident Evil 5", RECT{h.left, h.top + S(9), h.right, h.top + S(31)}, g_titleFont, kText,
+         DT_CENTER | DT_SINGLELINE);
+    Text(dc, L"Solo Launcher", RECT{h.left, h.top + S(30), h.right, h.bottom - S(6)}, g_smallFont, kMuted,
+         DT_CENTER | DT_SINGLELINE);
+    // Section labels, inside their cards.
+    int m = S(26);
+    Text(dc, L"Game folder", RECT{m, S(g_folderLabelY), client.right - m, S(g_folderLabelY + 18)}, g_smallFont, kMuted,
+         DT_LEFT | DT_SINGLELINE);
+    Text(dc, L"Options", RECT{m, S(g_optionsLabelY), client.right - m, S(g_optionsLabelY + 18)}, g_smallFont, kMuted,
+         DT_LEFT | DT_SINGLELINE);
     // The folder field's box (the edit control inside it has no border).
-    Rounded(dc, g_folderBox, t.field, t.border);
+    Card(dc, Scaled(g_folderBox), kField, kLine, 8);
     // Status dot.
-    COLORREF dot = g_state == State::UpToDate ? t.ok : g_state == State::Outdated ? t.warn : t.off;
-    int cy = g_statusY + S(9);
+    COLORREF dot = g_state == State::UpToDate ? kOk : g_state == State::Outdated ? kWarn : kDim;
+    int cx = m + S(5), cy = S(g_statusY + 10);
     HGDIOBJ oldBrush = SelectObject(dc, GetStockObject(DC_BRUSH)), oldPen = SelectObject(dc, GetStockObject(DC_PEN));
     SetDCBrushColor(dc, dot);
     SetDCPenColor(dc, dot);
-    Ellipse(dc, m, cy - S(5), m + S(10), cy + S(5));
+    Ellipse(dc, cx - S(4), cy - S(4), cx + S(4), cy + S(4));
     SelectObject(dc, oldBrush);
     SelectObject(dc, oldPen);
-    // Footer rule.
-    RECT rule{m, g_settingsY + S(30) * kSettingCount + S(36), W - m, g_settingsY + S(30) * kSettingCount + S(37)};
-    Fill(dc, rule, t.border);
 }
 
 // Hover tracking for owner-drawn buttons, plus Enter: IsDialogMessage only clicks push buttons on Enter, and
@@ -707,36 +705,47 @@ HWND Add(const wchar_t* cls, const wchar_t* text, DWORD style, int x, int y, int
 }
 
 HWND AddButton(const wchar_t* text, int x, int y, int w, int h, int id) {
-    return Add(L"BUTTON", text, BS_OWNERDRAW | WS_TABSTOP, x, y, w, h, id, g_buttonFont);
+    return Add(L"BUTTON", text, BS_OWNERDRAW | WS_TABSTOP, x, y, w, h, id, g_labelFont);
 }
 
 void Build() {
-    constexpr int W = 540, M = 22, kHeader = 68;
-    g_headerH = S(kHeader);
-    int y = kHeader + 34;
-    g_folderY = S(y);
-    g_folderBox = RECT{S(M), S(y), S(W - M - 104), S(y + 34)};
-    g_folder = Add(L"EDIT", L"", ES_READONLY | ES_AUTOHSCROLL, M + 10, y + 8, W - 2 * M - 104 - 20, 20, kIdFolder,
+    constexpr int W = 540, M = 12, P = 14;  // window width, page margin, card padding
+    constexpr int L = M + P, R = W - M - P;  // card content edges
+    g_header = RECT{M, M, W - M, 66};
+    g_cards.push_back(g_header);
+    // Game card: folder, status, install.
+    int top = 74, y = top + 12;
+    g_folderLabelY = y;
+    y += 22;
+    g_folderBox = RECT{L, y, R - 104, y + 34};
+    g_folder = Add(L"EDIT", L"", ES_READONLY | ES_AUTOHSCROLL, L + 10, y + 8, R - 104 - L - 20, 20, kIdFolder,
                    g_labelFont);
-    AddButton(L"Browse", W - M - 96, y, 96, 34, kIdBrowse);
-    y += 46;
-    g_statusY = S(y);
-    g_status = Add(L"STATIC", L"", SS_NOPREFIX, M + 18, y, W - 2 * M - 18, 36, kIdStatus, g_labelFont);
-    y += 42;
-    g_install = AddButton(L"Install", M, y, 132, 38, kIdInstall);
-    g_uninstall = AddButton(L"Uninstall", M + 142, y, 132, 38, kIdUninstall);
-    y += 38 + 48;
-    g_settingsY = S(y);
+    AddButton(L"Browse", R - 96, y, 96, 34, kIdBrowse);
+    y += 34 + 12;
+    g_statusY = y;
+    g_status = Add(L"STATIC", L"", SS_NOPREFIX, L + 16, y + 1, R - L - 16, 36, kIdStatus, g_labelFont);
+    y += 40;
+    g_install = AddButton(L"Install", L, y, 132, 36, kIdInstall);
+    g_uninstall = AddButton(L"Uninstall", L + 140, y, 132, 36, kIdUninstall);
+    y += 36 + P;
+    g_cards.push_back(RECT{M, top, W - M, y});
+    // Options card.
+    top = y + 8, y = top + 12;
+    g_optionsLabelY = y;
+    y += 24;
     for (int i = 0; i < kSettingCount; ++i)
-        g_settings[i] = Add(L"BUTTON", kSettings[i].label, BS_OWNERDRAW | WS_TABSTOP, M, y + 30 * i, W - 2 * M, 26,
+        g_settings[i] = Add(L"BUTTON", kSettings[i].label, BS_OWNERDRAW | WS_TABSTOP, L - 6, y + 32 * i, R - L + 12, 30,
                             kIdSetting + i, g_labelFont);
-    y += 30 * kSettingCount + 4;
-    Add(L"STATIC", L"Options take effect the next time the game starts.", SS_NOPREFIX, M, y, W - 2 * M, 18, 0,
+    y += 32 * kSettingCount + 6;
+    Add(L"STATIC", L"Options take effect the next time the game starts.", SS_NOPREFIX, L + 4, y, R - L - 4, 18, 0,
         g_smallFont);
-    y += 18 + 26;
-    AddButton(L"Open game folder", M, y, 184, 44, kIdOpen);
-    g_play = AddButton(L"Play", W - M - 160, y, 160, 44, kIdPlay);
-    RECT r{0, 0, S(W), S(y + 44 + M)};
+    y += 18 + P;
+    g_cards.push_back(RECT{M, top, W - M, y});
+    // Bottom row, on the page.
+    y += 12;
+    AddButton(L"Open game folder", M, y, 170, 42, kIdOpen);
+    g_play = AddButton(L"Play", W - M - 170, y, 170, 42, kIdPlay);
+    RECT r{0, 0, S(W), S(y + 42 + M)};
     AdjustWindowRect(&r, GetWindowLongW(g_window, GWL_STYLE), FALSE);
     SetWindowPos(g_window, nullptr, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOMOVE | SWP_NOZORDER);
 }
@@ -782,43 +791,21 @@ LRESULT CALLBACK WindowProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_ACTIVATE:
         if (LOWORD(wp) != WA_INACTIVE && g_status) Refresh();  // the folder may have changed meanwhile
         break;
-    case WM_CTLCOLORSTATIC: {  // labels, and the read-only folder field
+    case WM_CTLCOLORSTATIC: {  // labels on the cards, and the read-only folder field
         HDC dc = reinterpret_cast<HDC>(wp);
         bool field = reinterpret_cast<HWND>(lp) == g_folder;
-        SetTextColor(dc, field || reinterpret_cast<HWND>(lp) == g_status ? g_theme.text : g_theme.muted);
-        SetBkColor(dc, field ? g_theme.field : g_theme.bg);
-        return reinterpret_cast<LRESULT>(field ? g_fieldBrush : g_bgBrush);
+        SetTextColor(dc, field || reinterpret_cast<HWND>(lp) == g_status ? kText : kMuted);
+        SetBkColor(dc, field ? kField : kCard);
+        return reinterpret_cast<LRESULT>(field ? g_fieldBrush : g_cardBrush);
     }
     case WM_DESTROY: PostQuitMessage(0); return 0;
     }
     return DefWindowProcW(w, msg, wp, lp);
 }
 
-// Light or dark from the Windows app setting (--light / --dark override it), and the accent from the user's
-// accent palette: Windows uses its lighter shade on dark backgrounds and its darker one on light ones.
-void LoadTheme(const std::wstring& args) {
-    DWORD light = 0, size = sizeof light;
-    RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
-                 L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &light, &size);
-    if (args.find(L"--light") != std::wstring::npos) light = 1;
-    if (args.find(L"--dark") != std::wstring::npos) light = 0;
-    if (light) g_theme = kLight;
-    BYTE palette[32];  // 8 RGBA shades: light 3..1, the accent, dark 1..3, and one more
-    size = sizeof palette;
-    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Accent",
-                     L"AccentPalette", RRF_RT_REG_BINARY, nullptr, palette, &size) != ERROR_SUCCESS || size < 32)
-        return;
-    const BYTE* c = palette + 4 * (light ? 4 : 1);
-    g_theme.accent = RGB(c[0], c[1], c[2]);
-    g_theme.accentHot = Mix(g_theme.accent, g_theme.bg, 1, 8);
-    int luma = (c[0] * 299 + c[1] * 587 + c[2] * 114) / 1000;
-    g_theme.accentText = luma > 150 ? RGB(0, 0, 0) : RGB(255, 255, 255);
-}
-
 }  // namespace
 
-int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR args, int show) {
-    LoadTheme(args ? args : L"");
+int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     SetProcessDPIAware();
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     INITCOMMONCONTROLSEX icc{sizeof icc, ICC_STANDARD_CLASSES};
@@ -826,12 +813,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR args, int show) {
     HDC screen = GetDC(nullptr);
     g_dpi = GetDeviceCaps(screen, LOGPIXELSY);
     ReleaseDC(nullptr, screen);
-    g_titleFont = Font(L"Segoe UI Semibold", 30, FW_SEMIBOLD);
-    g_labelFont = Font(L"Segoe UI", 15, FW_NORMAL);
-    g_buttonFont = Font(L"Segoe UI", 15, FW_SEMIBOLD);
-    g_smallFont = Font(L"Segoe UI", 12, FW_SEMIBOLD);
-    g_bgBrush = CreateSolidBrush(g_theme.bg);
-    g_fieldBrush = CreateSolidBrush(g_theme.field);
+    g_titleFont = Font(12, FW_SEMIBOLD);
+    g_labelFont = Font(10, FW_NORMAL);
+    g_buttonFont = Font(10, FW_SEMIBOLD);
+    g_smallFont = Font(9, FW_NORMAL);
+    g_cardBrush = CreateSolidBrush(kCard);
+    g_fieldBrush = CreateSolidBrush(kField);
 
     WNDCLASSW wc{};
     wc.lpfnWndProc = WindowProc;
@@ -842,8 +829,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR args, int show) {
     RegisterClassW(&wc);
     g_window = CreateWindowExW(0, wc.lpszClassName, kTitle, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
                                CW_USEDEFAULT, CW_USEDEFAULT, 400, 300, nullptr, nullptr, instance, nullptr);
-    BOOL dark = g_theme.dark;  // a matching title bar (DWMWA_USE_IMMERSIVE_DARK_MODE)
+    BOOL dark = TRUE;  // a dark title bar (DWMWA_USE_IMMERSIVE_DARK_MODE) in the page colour (DWMWA_CAPTION_COLOR)
     DwmSetWindowAttribute(g_window, 20, &dark, sizeof dark);
+    COLORREF caption = kBg;
+    DwmSetWindowAttribute(g_window, 35, &caption, sizeof caption);
     Build();
     SetGame(FindGame());
     Refresh();

@@ -6,6 +6,7 @@
 // F10 arms a teleport watch: a hardware write watchpoint on the player's +0x30 in every game thread, caught by
 // our own vectored handler (the game does not survive a real debugger attaching). Any write that moves the
 // player more than 300 units logs the writer's EIP and the return addresses on its stack.
+#include <stdlib.h>
 #include "objhook.h"
 #include "solo.h"
 
@@ -76,7 +77,7 @@ LONG CALLBACK OnWatch(EXCEPTION_POINTERS* ep) {
 }
 
 // Set (or clear) DR0 = addr, write, 4 bytes (1 byte for an address watch), in every game thread but this one.
-void SetWatch(DWORD addr) {
+void SetWatch(DWORD addr, bool quiet = false) {
     DWORD enable = g_anyWrite ? 0x10001u : 0xD0001u;
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
     THREADENTRY32 te{sizeof te};
@@ -99,7 +100,7 @@ void SetWatch(DWORD addr) {
         CloseHandle(t);
     }
     CloseHandle(snap);
-    Log("watch: %s on %08lX in %d threads", addr ? "armed" : "cleared", addr, count);
+    if (!quiet) Log("watch: %s on %08lX in %d threads", addr ? "armed" : "cleared", addr, count);
 }
 
 void WatchTick() {
@@ -131,12 +132,30 @@ void WatchFileTick() {
     GetModuleFileNameA(nullptr, path, MAX_PATH);
     char* slash = strrchr(path, '\\');
     strcpy(slash ? slash + 1 : path, "re5_solo_watch.txt");
+    // A hex address, or a pointer chain "base,off,off" (each comma dereferences, then adds), re-read every second
+    // so the watch follows an object a reload moves.
     DWORD addr = 0;
     if (FILE* f = fopen(path, "r")) {
-        if (fscanf(f, "%lx", &addr) != 1) addr = 0;
+        char text[256] = {};
+        fgets(text, sizeof text, f);
         fclose(f);
+        char* p = text;
+        addr = strtoul(p, &p, 16);
+        __try {
+            while (addr && *p == ',') {
+                DWORD off = strtoul(p + 1, &p, 16);
+                addr = *reinterpret_cast<DWORD*>(addr);
+                if (addr) addr += off;
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            addr = 0;
+        }
     }
-    if (addr == armed) return;
+    if (addr == armed) {  // threads a level load starts have no watch yet: re-arm every few seconds
+        static DWORD rearmed;
+        if (addr && GetTickCount() - rearmed > 3000) rearmed = GetTickCount(), SetWatch(addr, true);
+        return;
+    }
     if (!g_handler) g_handler = AddVectoredExceptionHandler(1, OnWatch);
     armed = addr;
     g_seenCount = 0;

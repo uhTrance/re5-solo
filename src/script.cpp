@@ -188,6 +188,34 @@ BYTE* Condition(void* param) {  // param +4 -> table of 0x14-byte entries (+0x10
     return table ? At<BYTE*>(table, At<DWORD>(p, 0xC) * 0x14 + 0x10) : nullptr;
 }
 
+// PlayerCheck! (cFSMOrder +0x138, 0xC37200) picks a player by the condition's mode (+0x21: 0-3 = that player
+// slot, read straight from the list by 0x7E6220; 4 = the script's own; 5 = the nearest) and runs a check on it
+// (0xC2C200: +0x20 0 = its flags +0x2D7C, 4 = distance, ...) that sets a script flag. A slot with nobody in it
+// does nothing, so the flag never comes: in the 5-3 Wesker fight the door (Wesker kicks both players through it)
+// checks player 0, Chris, and waits for ever as Sheva. In solo an empty slot's check is run on the player.
+constexpr DWORD kPlayerCheckSlot = 0x138 / 4;
+constexpr DWORD kCheckMode = 0x21;
+
+void __fastcall PlayerCheckSolo(BYTE* self, void* edx, void* param) {
+    Handler original = g_traced[1].original[kPlayerCheckSlot];
+    BYTE* cond = nullptr;
+    BYTE mode = 0xFF;
+    __try {
+        cond = Condition(param);
+        mode = cond ? At<BYTE>(cond, kCheckMode) : 0xFF;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    auto players = *reinterpret_cast<BYTE**>(kPlayerList);
+    bool swap = mode < 4 && players && SoloPlayer() && !At<BYTE*>(players, 0x24 + 4 * mode) &&
+                static_cast<int>(mode) != SoloSlot();
+    if (!swap) return original(self, edx, param);
+    static void* logged;
+    if (cond != logged) Log("script %p: PlayerCheck on empty slot %d run on the player instead", self, mode);
+    logged = cond;
+    At<BYTE>(cond, kCheckMode) = static_cast<BYTE>(SoloSlot());
+    original(self, edx, param);
+    At<BYTE>(cond, kCheckMode) = mode;
+}
+
 const char* ScriptName(DWORD slot) {
     for (const auto& n : kScriptNames)
         if (n.slot == slot) return n.name;
@@ -226,6 +254,9 @@ void __fastcall TracedCall(BYTE* self, void* edx, void* param) {
     if constexpr (N == kAreaHitPlSlot) {
         if (At<DWORD*>(self, 0) == g_traced[0].copy && !RecordMode()) return AreaHitPlSolo(self, edx, param);
     }
+    if constexpr (N == kPlayerCheckSlot) {
+        if (At<DWORD*>(self, 0) == g_traced[1].copy) return PlayerCheckSolo(self, edx, param);
+    }
     Original(self, N)(self, edx, param);
 }
 
@@ -241,7 +272,8 @@ void PatchClass(DWORD* copy, DWORD lastSlot, int index) {
     g_traced[index].copy = copy;
     for (DWORD i = 0; i < kSlots; ++i) g_traced[index].original[i] = reinterpret_cast<Handler>(copy[i]);
     if (!TraceMode()) {
-        copy[kAreaHitPlSlot] = reinterpret_cast<DWORD>(&AreaHitPlSolo);
+        if (index == 0) copy[kAreaHitPlSlot] = reinterpret_cast<DWORD>(&AreaHitPlSolo);
+        if (index == 1) copy[kPlayerCheckSlot] = reinterpret_cast<DWORD>(&PlayerCheckSolo);
         return;
     }
     for (const auto& n : kScriptNames)
@@ -277,7 +309,7 @@ void PatchLevelScripts() {
                     cameras += TryRetargetCamera(reinterpret_cast<BYTE*>(p + i));
                     continue;
                 }
-                if (p[i] != kFsmTaskVtable || !TraceMode()) continue;
+                if (p[i] != kFsmTaskVtable || !(TraceMode() || solo)) continue;  // solo: PlayerCheck
                 auto order = reinterpret_cast<BYTE*>(p[i + 6]);
                 if (order && !IsBadReadPtr(order, 4) && At<DWORD>(order, 0) == kLevelScriptVtable) {
                     PatchObject(order, kLevelScriptVtable, PatchLevelScript);
@@ -287,7 +319,7 @@ void PatchLevelScripts() {
             }
         } __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
-    if (found) Log("trace: %d level scripts patched", found);
+    if (found) Log("scripts: %d level scripts patched", found);
     if (retargeted) Log("scripts: %d zone check(s) that named only the partner now check the player", retargeted);
     if (cameras) Log("scripts: %d camera(s) on the partner's view now use the player's", cameras);
 }

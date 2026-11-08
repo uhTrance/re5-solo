@@ -102,6 +102,17 @@ BYTE* __fastcall RunCreate(BYTE* dti, void*) {
     return action;
 }
 
+// The class name of a unit or action (its DTI's name), for the log.
+const char* ClassName(BYTE* object) {
+    __try {
+        auto dti = object ? VCall<BYTE*>(object, 0x10) : nullptr;
+        return dti ? At<const char*>(dti, 4) : "none";
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return "?";
+    }
+}
+
+
 void AfterCollapseUpdate(BYTE*) {
     auto game = *reinterpret_cast<BYTE**>(kGame);
     if (!game) return;
@@ -200,6 +211,20 @@ void Restore(DWORD* slot, DWORD ours, DWORD original) {
 }
 
 }  // namespace
+
+// 4-2 collapse: its QTE is over and the player has control again (solo.cpp takes the hidden Chris out of play),
+// given the scene is 6210 or later (the caller checks): the player is on their own actions (cPlAction_*), not the
+// collapse's (cActPl*). Logged 2026-11-07: run, button presses, success, scene 6210 at 37.3 s while the player is
+// still on cActPlSuccess, the player's own wait at 41.5 s. A retry's checkpoint is past the QTE (6210 or later):
+// there the collapse never runs and the player starts on their own actions.
+bool CollapseDone() {
+    __try {
+        BYTE* player = SoloPlayer();
+        return player && !strncmp(ClassName(At<BYTE*>(player, 0x10F8)), "cPlAction", 9);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
 
 // CoreShutdown: nothing may keep pointing into this DLL.
 void CollapseShutdown() {
