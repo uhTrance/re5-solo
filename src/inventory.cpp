@@ -67,6 +67,23 @@ void InventoryTick() {
     int partner = PartnerSlot();
     char items[256];
     bool noPlayer = !PlayerAt(0) && !PlayerAt(1);
+    // Switching character (a Chris run, then Sheva from the menu, or back) tells the mod who the partner is only
+    // once the load has begun, and by then the load has emptied the new partner's blocks: the old player's
+    // loadout was lost (2026-11-08: Sheva's VZ61 and its ammo gone from the 18:03 save, Chris's whole loadout at
+    // 02:53). So while nobody is in the level the current player's committed block is remembered too, ready for
+    // when they become the partner. An empty block is skipped (the load's wipe), and their change tracking
+    // starts afresh, so a stale last look cannot pass the wipe off as the player's change.
+    int me = partner ^ 1;
+    if (noPlayer) {
+        BYTE* committed = Block(stage, kCommitted, me);
+        if (!IsEmpty(committed) && (!g_have[me] || memcmp(committed, g_saved[me], kBlockBytes))) {
+            memcpy(g_saved[me], committed, kBlockBytes);
+            g_have[me] = true;
+            Describe(committed, items, sizeof items);
+            Log("inventory: %s's own loadout remembered (no player):%s", me ? "Sheva" : "Chris", items);
+        }
+        g_seenAny[me] = false;
+    }
     if (noPlayer && !g_have[partner]) {  // the first look: what Item Management last committed
         BYTE* committed = Block(stage, kCommitted, partner);
         memcpy(g_saved[partner], committed, kBlockBytes);

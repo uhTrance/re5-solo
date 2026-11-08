@@ -182,6 +182,20 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
   `0x9b7e70`, which only scans slots below the player count `[[0x11b27dc]+0x34]` (1 in solo), so it never
   reached Sheva in slot 1. The AI gets a vtable copy whose think (`+0x94`; `+0x98` is empty, and the update `+0x70` is not called through the object's vtable) raises the count to reach the player's slot
   for that call only. 62 places read the count; others may share the blind spot when playing as Sheva.
+  The AIs think on several worker threads at once, so the raise is shared (first think in raises it, last out
+  restores it under a lock). Per-think save/restore let one think drop the count back to 1 while another ran:
+  that crocodile's range flags (`+0x1bb4`) read 0 for a frame, and one surfacing then (state 6, the action at
+  `0x8ff9f8` sets `+0x1ba0` when flag 4 is clear) gave up, dived and waited out its 5 s cooldown (`+0x17fc`).
+- **3-1 marsh checkpoints at scene 4200** (`croc.cpp`): EmMng starts on SceNo. 4210 goes to its marsh zone
+  checks; 4200 (chapter start) waits for a one-off "player on the dock" check (manager 6 zone 27, run once as
+  the area loads), then RSF 10, before it sets 4210. A marsh checkpoint saved at 4200 reloads far from the dock
+  and the script waits for good: no crocodiles. Away from the dock at 4200, the scene and the checkpoint
+  snapshot's copy (`+0x41d0`) are moved to 4210, so the next checkpoint reload starts in the marsh.
+  A load from the menu reads the save file again (still 4200), and the watcher can lose the race with EmMng's
+  first update. EmMng then sits in `chkRSF10_demo`, `wait` or `chkRSF10_begin` (RSF 10, which such a save lacks);
+  found there with the scene at 4210 (via its `chkScenum`: the state with two SceNo transitions, from the FSM
+  definition `[[order+0x10]+4]`, states at `+0x18`, count `+0xc`), its current state (`core+8`) is set back to
+  `chkScenum`, which then takes its 4210 transition.
 - **Two-man levers** (`lever.cpp`, `uOmSwitch` pairs, e.g. 3-3 `uOm08f3`): index `+0x19a0` (0/1), partner
   `+0x199c`; a pull sets `0x1202040[index]`, the pair goes when both are set, checked at the pull. The
   partner's byte is set when the player walks up to a lever, plus a mirror after the pull as fallback (which

@@ -50,10 +50,12 @@ LONG CALLBACK OnWatch(EXCEPTION_POINTERS* ep) {
     if (!(c->Dr6 & 1)) return EXCEPTION_CONTINUE_SEARCH;
     c->Dr6 = 0;
     if (g_anyWrite) {
+        // A writer is the instruction and the low byte it wrote: one set-state function writes every state.
+        DWORD key = c->Eip ^ (DWORD(*reinterpret_cast<volatile BYTE*>(g_watchAddr)) << 24);
         for (LONG i = 0; i < g_seenCount; ++i)
-            if (g_seen[i] == c->Eip) return EXCEPTION_CONTINUE_EXECUTION;
+            if (g_seen[i] == key) return EXCEPTION_CONTINUE_EXECUTION;
         if (g_seenCount < 8) {
-            g_seen[g_seenCount++] = c->Eip;
+            g_seen[g_seenCount++] = key;
             __try {
                 Log("watch: %08lX written by eip %08lX tid %lu (value now %08lX)", g_watchAddr, c->Eip,
                     GetCurrentThreadId(), *reinterpret_cast<DWORD*>(g_watchAddr));
