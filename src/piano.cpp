@@ -83,11 +83,14 @@ bool PressedAt(BYTE* self) {
             e.held = held;
             return fresh;
         }
+    // New use-item (each retry makes new ones): a free entry, else the oldest one goes.
+    static unsigned next;
     for (auto& e : seen)
         if (!e.self) {
             e = {self, held};
-            break;
+            return false;
         }
+    seen[next++ % 16] = {self, held};
     return false;
 }
 
@@ -119,6 +122,8 @@ void __fastcall UseItemUpdate(BYTE* self, void*) {
 void PatchUseItem(DWORD* copy) { copy[kUpdateSlot] = reinterpret_cast<DWORD>(&UseItemUpdate); }
 
 }  // namespace
+
+bool LinActionHeld() { return ActionHeld(); }
 
 // Watcher thread.
 void PianoTick() {

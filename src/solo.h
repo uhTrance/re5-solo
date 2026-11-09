@@ -46,6 +46,8 @@ void NdesuEaseTick();
 void NdesuWatchTick();
 void WeskerTick();
 void DebugTick();
+void JumpTick();                  // jump.cpp: the area skipper (F11, re5_solo_jump*.txt)
+void JumpFrame();                 // its game-thread half
 void ScriptTick();
 void ZoneTick();
 void PianoTick();
@@ -73,6 +75,8 @@ void XInputFilter(DWORD user, void* state);
 void DInputFilter(void* device, DWORD size, void* data);
 bool DInputAimHeld();
 bool DInputActionHeld();
+bool LinActionHeld();             // piano.cpp: F, or the pad's action button
+void ZonePressTick();
 DWORD RawXInputGetState(DWORD user, void* state);
 
 // The game's message window (hint.cpp).

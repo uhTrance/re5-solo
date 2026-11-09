@@ -50,13 +50,20 @@ is technical notes.
 - Crash recorder (`crashlog.cpp`): a vectored handler that only logs (the game has its own handler, no WER
   report); faults outside the exe have a separate 8-entry budget.
 - Release: `dist\RE5 Solo <date>.zip` (launcher + `Read me.txt`).
+- Updates: the launcher asks GitHub for the newest release on start (`update.cpp`). A tag newer than
+  `RE5SOLO_VERSION` (`src/version.h`, raise it with every release; tags are `vMAJOR.MINOR.PATCH`) offers the update;
+  on yes it downloads the release's `*Launcher*.exe` asset (else its zip, unpacked with Windows' `tar`), swaps itself,
+  restarts with `--updated` and updates an installed mod. So attach the launcher exe to each release beside the zip.
+  `RE5SOLO_UPDATE_URL` points the check at another JSON (testing); `RE5SOLO_NO_UPDATE` turns it off.
 
 Marker files next to the exe (read when the core loads):
 
 | File | Effect |
 |---|---|
 | `re5_solo_record.txt` | Vanilla co-op: Sheva spawns, nothing is hooked; co-op jump landings are logged (`record.cpp`) |
-| `re5_solo_debug.txt` | F9 freezes enemies (unit move line 9 speed `+0x14` = 0); F10 arms a hardware write watch on the player's `+0x30` that logs any teleport over 300 units with the writer's EIP and callers |
+| `re5_solo_debug.txt` | F9 freezes enemies (unit move line 9 speed `+0x14` = 0); F10 arms a hardware write watch on the player's `+0x30` that logs any teleport over 300 units with the writer's EIP and callers; F11 skips the area (`jump.cpp`: the area's exit object `uOmf301`, else the level script's JumpArea target) |
+| `re5_solo_jump.txt` | `area [start point] [scene]`: where F11 goes instead (debug keys only) |
+| `re5_solo_jump_now.txt` | Same format: jumps there once and is deleted (works without the debug keys) |
 | `re5_solo_trace.txt` | Script tracer: logs each script function's first run per param, scans for level scripts, "hot:" lines = calls per 5 s |
 
 ## Tools
@@ -67,6 +74,9 @@ Marker files next to the exe (read when the core loads):
   `fsm_dump.py` (offline level-script dump), `fsmstate.py <order>` (a script's current state), `needs2p.py`
   (functions that call getPlayer(1) or the partner getter, by class; output `needs2p.txt`), `arc_types.py`
   (type hash = `jamcrc(class) & 0x7fffffff` -> extension, `arc_types.json`).
+- `tools/crashwatch.ps1`: waits for the game, shows crash-recorder lines live and, when the game exits, copies
+  `re5_solo.log` (rewritten at each launch) into `crashlogs/` and lists new minidumps. `re/dmpread.py` reads
+  dwords out of a minidump.
 - `tools/loose_sheva.py [--chris] [--remove]`: Python version of the launcher's scene-file unpack.
 - Write watch (`debug.cpp`): a hex address in `re5_solo_watch.txt` next to the exe arms a 1-byte hardware write
   watch there (checked each second, hot) and logs the first 8 distinct writers with stacks; delete to clear.
@@ -329,8 +339,11 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
   stands at a `uOmUseItem` that needs it (its action, vtbl `0x1016b20` `+0x188`, run from its update `+0x160`).
   Scenario zones that start a level script on an action-button press (def `+8` type 6) never take Jill's press,
   though she counts as inside and her button is available (seen at the lock: `Pick_chk` sets flag 19, which the
-  lockpick `uOmf108_KeyPick` waits for). There they are made to fire on entry (type 3) instead (`zones.cpp`), and
-  so are type 5 ones without a prompt message (the study's PC); "Check" spots (message `0x8b`) are left alone.
+  lockpick `uOmf108_KeyPick` waits for). There, for 300 ms after a fresh press of the action button (F, or the
+  pad's A), they are made "fire with a player inside" (type 3), so the one she stands in fires on her press
+  (`zones.cpp`); so are type 5 ones without a prompt message (the study's PC). The piano's spot also holds Chris's
+  look (`Moon_Chris`, his "never took piano lessons" line, which sets flag 17): flag 17 is set as she comes within
+  3 m of it and his look is then skipped, so one press plays the piano.
   The ceiling trap room catches whoever walks in; the caught player shoots the lock off (flag 13) and the other
   pulls the lever by the gate (`uOm08bc`: flag 202, scene 14370, the safe switched on). Alone, the player is moved
   through the gate once the lock is off (`piano.cpp`), pulls the lever, and goes back for the safe.
@@ -339,7 +352,19 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
   705/706 count as Lost in Nightmares too. There, camera params aimed at Chris are not pointed at Jill
   (`script.cpp`): each character has a wake-up camera of their own, and Chris's took over hers. In 705 the
   coloured cranks' grab button (crank action `+0x10f8` -> `+0x1c`, condition `0xab18f0`) only lets a human turn
-  one when their partner exists and is human, so for a free crank the mod lets the player turn it alone. The
+  one when their partner exists and is human, so for a free crank the mod lets the player turn it alone. Wound
+  fully, it locks; its ceiling (`uOm021d`, crank `+0x197c`) stays up only while the crank's action index
+  (`+0x10e0`) is 1 (being wound), so for the ceiling's own update (vtbl `+0x160`) a locked crank reports 1. Without
+  that, the ceiling landed in mid-air: drawn at the top with its collision on the floor, which made an invisible
+  platform. With the crank reporting 1, the game's own trap runs as in co-op: an axe man under the raised ceiling
+  is crushed (seen 2026-11-09, 8 ms after the lock). The mod's own drop (axe man in the box, player not near its
+  middle, checked from the ceiling's update because an idle crank stops updating) is a fallback. When the trap
+  goes off the lock lets go and the crank rewinds; a lock turning the rewind into waiting also sends the rewind's
+  own stop for its winding-down sound (request 3, `0xab26d0` -> `0x7a4630`), which otherwise looped. The basement
+  wake-up (`uroboros.cpp`, area controller vtbl `0xf579b0`, step `+0x6ec`) waits for two ready players at step 1;
+  alone, the ready player moves it on. The final fight (706) saves its checkpoint (a `cScenarioArg_CHP` zone,
+  scene 14770) only with a player inside its box after the intro, and Jill is placed just outside it, so at scene
+  14760 the zone is fired for her (`zones.cpp`). The
   enemies there (`uEmIntel70` `0xf977b8`, `uEmIntel65` `0xf97348`) only ever target player 0, so with no target they
   get the player (AI `+0x2c`, enemy `+0x1ba4`; `uroboros.cpp`). With no audio device, radio calls wait for
   ever on their first line: each subtitle waits for its voice line to finish playing. That's a setup issue, not a

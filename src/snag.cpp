@@ -30,7 +30,8 @@ constexpr DWORD kProjectSlot = 0xD8, kProject = 0xB6A670;
 constexpr DWORD kStart = 0x1060, kMoved = 0x1050;
 constexpr DWORD kMovedCopies[] = {0x30, 0x90, 0xD0};  // where the moved position sits before +0xD8
 constexpr DWORD kTimer = 0x11B209C, kFrameSeconds = 0x28;
-constexpr float kMinStep = 0.5f, kSame = 0.01f;
+constexpr float kMinStep = 0.5f, kSame = 0.01f, kHeldShare = 1.0f / 8;
+constexpr int kKeepFrames = 8, kGiveUpFrames = 4, kCooldownFrames = 30;
 constexpr int kSlots = 4;
 
 bool FixOn() {
@@ -42,10 +43,21 @@ bool FixOn() {
     return on;
 }
 
+// re5_solo_120fps_pause.txt next to the exe switches the widening off while it exists (checked each second by the
+// watcher), to compare with the game's own behaviour without a restart.
+volatile bool g_paused;
+
+struct Track;
+bool WidenStep(BYTE* unit, Track* t, bool upTo30);
+
 struct Track {
     float lastStart[3];
     float lastStep;
     int heldBack;
+    int clear;     // frames in a row not held back, while heldBack is kept
+    int cooldown;   // frames left with no widening (it did not help)
+    int fruitless;  // widened frames in a row that got nowhere
+    bool widened;   // this frame's step was widened
 };
 Track g_track[kSlots];
 
@@ -56,31 +68,12 @@ Track* TrackOf(BYTE* player) {
 }
 
 void __fastcall Project(BYTE* player, void*) {
-    if (Track* t = TrackOf(player)) {
-        float* start = &At<float>(player, kStart);
-        float* moved = &At<float>(player, kMoved);
-        float step[3] = {moved[0] - start[0], moved[1] - start[1], moved[2] - start[2]};
-        float len = std::hypot(step[0], step[2]);
-        bool same = std::fabs(start[0] - t->lastStart[0]) < kSame && std::fabs(start[2] - t->lastStart[2]) < kSame;
-        t->heldBack = len > kMinStep && t->lastStep > kMinStep && same ? t->heldBack + 1 : 0;
-        for (int i = 0; i < 3; ++i) t->lastStart[i] = start[i];
-        t->lastStep = len;
-        auto timer = *reinterpret_cast<BYTE**>(kTimer);
-        float seconds = timer ? At<float>(timer, kFrameSeconds) : 0.0f;
-        float factor = seconds > 0.0f ? (1.0f / 60.0f) / seconds : 1.0f;
-        if (t->heldBack >= 2 && factor > 1.5f) {
-            if (factor > 4.0f) factor = 4.0f;
-            for (DWORD off : kMovedCopies) {
-                At<float>(player, off) = start[0] + step[0] * factor;
-                At<float>(player, off + 8) = start[2] + step[2] * factor;
-            }
-            moved[0] = start[0] + step[0] * factor;
-            moved[2] = start[2] + step[2] * factor;
-            if (t->heldBack == 2)
-                Log("120fps fix: player %d held at %.1f %.1f %.1f, trying the 60 fps step (x%.1f, %.2f units)",
-                    static_cast<int>(t - g_track), start[0], start[1], start[2], factor, len * factor);
-        }
-    }
+    // Players get the enemies' escalation too: still held after the 60 fps step for a while, the 30 fps one (stair
+    // corners in Lost in Nightmares' area 700 held Jill at x2, 2026-11-09).
+    if (Track* t = TrackOf(player); t && WidenStep(player, t, true) && (t->heldBack == 2 || t->fruitless == 2) && !t->clear)
+        Log("120fps fix: player %d held at %.1f %.1f %.1f, trying the %s fps step", static_cast<int>(t - g_track),
+            At<float>(player, kStart), At<float>(player, kStart + 4), At<float>(player, kStart + 8),
+            t->fruitless >= 2 ? "30" : "60");
     ThisCall(kProject, player);
 }
 
@@ -104,19 +97,54 @@ Track* EnemyTrackOf(BYTE* unit) {
 }
 
 // The player fix's step, for one unit: true once it hands the collision the 60 fps step.
-bool WidenStep(BYTE* unit, Track* t, bool upTo30 = false) {
+bool WidenStep(BYTE* unit, Track* t, bool upTo30) {
+    if (g_paused) return false;
     float* start = &At<float>(unit, kStart);
     float* moved = &At<float>(unit, kMoved);
     float step[3] = {moved[0] - start[0], moved[1] - start[1], moved[2] - start[2]};
     float len = std::hypot(step[0], step[2]);
-    bool same = std::fabs(start[0] - t->lastStart[0]) < kSame && std::fabs(start[2] - t->lastStart[2]) < kSame;
-    t->heldBack = len > kMinStep && t->lastStep > kMinStep && same ? t->heldBack + 1 : 0;
+    // Held back: since the last frame it got under an eighth of the step it was given (or nowhere), as sliding
+    // along a stair corner does (0.4 units a frame of a 3.5 step). A third caught ordinary stair climbing too.
+    float advanced = std::hypot(start[0] - t->lastStart[0], start[2] - t->lastStart[2]);
+    bool same = advanced < kSame || advanced < t->lastStep * kHeldShare;
+    // The wider step not helping (still nowhere after a few widened frames, as against a stair's riser, where it
+    // only pushed into the next step): no widening for a while.
+    if (t->cooldown > 0) {
+        --t->cooldown;
+        t->heldBack = t->clear = 0;
+        for (int i = 0; i < 3; ++i) t->lastStart[i] = start[i];
+        t->lastStep = len;
+        return false;
+    }
+    // Judged frame by frame: a widened frame that got nowhere counts against it. Two in a row bring the 30 fps step
+    // (where allowed), four give up for kCooldownFrames. On stairs it was the widening that stopped her dead.
+    if (t->widened) t->fruitless = advanced < kSame ? t->fruitless + 1 : 0;
+    t->widened = false;
+    if (t->fruitless >= kGiveUpFrames) {
+        t->cooldown = kCooldownFrames;
+        t->heldBack = t->clear = t->fruitless = 0;
+        for (int i = 0; i < 3; ++i) t->lastStart[i] = start[i];
+        t->lastStep = len;
+        return false;
+    }
+    // Once widened, the wider step frees it, and dropping back at once caught it again two frames later (a stutter
+    // past stair corners): the count is kept until it has gone kKeepFrames frames without being held.
+    bool held = len > kMinStep && t->lastStep > kMinStep && same;
+    if (held) {
+        ++t->heldBack;
+        t->clear = 0;
+    } else if (t->heldBack >= 2 && len > kMinStep && ++t->clear < kKeepFrames) {
+        // still widening
+    } else {
+        t->heldBack = 0;
+        t->clear = 0;
+    }
     for (int i = 0; i < 3; ++i) t->lastStart[i] = start[i];
     t->lastStep = len;
     auto timer = *reinterpret_cast<BYTE**>(kTimer);
     float seconds = timer ? At<float>(timer, kFrameSeconds) : 0.0f;
     // Still held after the 60 fps step for a while: the 30 fps one (enemies; the axe man needed it).
-    float rate = upTo30 && t->heldBack > 10 ? 30.0f : 60.0f;
+    float rate = upTo30 && t->fruitless >= 2 ? 30.0f : 60.0f;
     float factor = seconds > 0.0f ? (1.0f / rate) / seconds : 1.0f;
     if (t->heldBack < 2 || factor <= 1.5f) return false;
     if (factor > 8.0f) factor = 8.0f;
@@ -126,20 +154,22 @@ bool WidenStep(BYTE* unit, Track* t, bool upTo30 = false) {
     }
     moved[0] = start[0] + step[0] * factor;
     moved[2] = start[2] + step[2] * factor;
+    t->widened = true;
     return true;
 }
 
 void __fastcall EnemyProject(BYTE* unit, void*) {
     Track* t = EnemyTrackOf(unit);
-    if (WidenStep(unit, t, true) && (t->heldBack == 2 || t->heldBack == 11))
+    if (WidenStep(unit, t, true) && (t->heldBack == 2 || t->fruitless == 2) && !t->clear)
         Log("120fps fix: enemy %p held at %.1f %.1f, trying the %s fps step", unit, At<float>(unit, kStart),
-            At<float>(unit, kStart + 8), t->heldBack == 2 ? "60" : "30");
+            At<float>(unit, kStart + 8), t->fruitless >= 2 ? "30" : "60");
     ThisCall(kEnemyProject, unit);
 }
 
 void PatchEnemy(DWORD* copy) { copy[kProjectSlot / 4] = reinterpret_cast<DWORD>(&EnemyProject); }
 
 void AfterPlayerMove(BYTE* player) {
+    JumpFrame();
     DeathAfterMove(player);
     PartnerAfterMove(player);
     VolcanoAfterMove(player);
@@ -149,6 +179,13 @@ void AfterPlayerMove(BYTE* player) {
 
 // Watcher thread, 120fps fix on: an enemy class whose unit stays put while it moves gets EnemyProject.
 void EnemySnagTick() {
+    static DWORD lastPause;
+    if (GetTickCount() - lastPause >= 1000) {
+        lastPause = GetTickCount();
+        bool paused = MarkerFile("re5_solo_120fps_pause.txt");
+        if (paused != g_paused) Log("120fps fix: %s (re5_solo_120fps_pause.txt)", paused ? "paused" : "back on");
+        g_paused = paused;
+    }
     static DWORD last;
     if (!FixOn() || GetTickCount() - last < 100) return;
     last = GetTickCount();

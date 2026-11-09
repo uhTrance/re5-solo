@@ -22,6 +22,8 @@
 // walks players 0 and 1 with getPlayer and reads a missing one's +0x18 without a null check (0x74FD50): the game
 // quit as soon as Chris's empty slot came up. That callback is pointed at a wrapper that, for step 4 only, puts
 // the player in the partner's slot for the call and empties it again.
+#include <cstring>
+
 #include "objhook.h"
 #include "solo.h"
 
@@ -64,33 +66,107 @@ int __cdecl PlatformStep(BYTE* param) {
 // start scripts, +0x34 count, +0x40 entries, each naming a script) never take Jill's press: the zone counts her
 // inside and her per-player button (zone +0x10 group, who 1, mask 2) is available, but its callback (0xCC2430)
 // never runs. Seen at the lock (Pick_chk, which sets flag 19 for the lockpick) and, by its flag never being set,
-// at the piano's sheet music (Moon_Chris, flag 17). There these zones fire as soon as the player walks in (type 3).
-// Type 5 does the same at the study's PC (PC_inputAndFileLook); of those only the ones without a prompt message
-// (def +0x20 0) change, so the "Check" spots (message 0x8B) stay on the button.
+// at the piano's sheet music (Moon_Chris, flag 17). Type 5 does the same at the study's PC (PC_inputAndFileLook); of
+// those only the ones without a prompt message (def +0x20 0) are handled, so the "Check" spots (message 0x8B) stay
+// as they are. Such a zone fires on the player's own press: for a moment after a fresh press of the action button
+// (F, or the pad's A) they become "fire with a player inside" (type 3), so only the one she stands in fires, then go
+// back. (Before 2026-11-09 they were type 3 for good and fired as soon as she walked in: the sheet music and the
+// crank holes were examined on approach.)
 constexpr DWORD kScenarioBoot = 0x340, kScenarioBootVtable = 0x10498F8;
 constexpr DWORD kTypePress = 6, kTypePressQuiet = 5, kTypeEnter = 3;
 
-void PressToEnterUnsafe(BYTE* zone) {
+// The zones switched to type 3 for the current press, with their own type, to put back.
+struct Flipped {
+    BYTE* def;
+    DWORD type;
+    bool fired;  // the zone's "fired" flag (+0x1C bit 3) before the press
+};
+Flipped g_flipped[64];
+int g_flippedCount;
+DWORD g_flippedAt;
+
+constexpr DWORD kMusicFlag = 17, kStageFlags = 0x23218;
+constexpr float kPianoReach = 300.0f;
+
+bool MusicKnown(BYTE* stage) {
+    return At<DWORD>(stage, kStageFlags + 4 * (kMusicFlag >> 5)) & (0x80000000u >> (kMusicFlag & 31));
+}
+
+// The script a scenario zone starts: its boot's first entry (+0x40) names it at [entry +4] +8.
+// The level script a zone's boot starts ("" if it has no real boot: zones without one hold other data there).
+const char* BootScript(BYTE* zone) {
+    BYTE* boot = zone + kScenarioBoot;
+    if (At<DWORD>(boot, 0) != kScenarioBootVtable || At<BYTE*>(boot, 0x28) != zone) return "";
+    BYTE** entries = At<BYTE**>(boot, 0x40);
+    BYTE* entry = entries ? entries[0] : nullptr;
+    BYTE* script = entry ? At<BYTE*>(entry, 4) : nullptr;
+    return script ? reinterpret_cast<const char*>(script + 8) : "";
+}
+
+bool PressZone(BYTE* zone) {
     BYTE* def = At<BYTE*>(zone, 4);
-    if (!def) return;
+    if (!def) return false;
     DWORD type = At<DWORD>(def, 8);
-    if (type != kTypePress && !(type == kTypePressQuiet && At<DWORD>(def, 0x20) == 0)) return;
+    if (type != kTypePress && !(type == kTypePressQuiet && At<DWORD>(def, 0x20) == 0)) return false;
     BYTE* boot = zone + kScenarioBoot;
     if (At<DWORD>(boot, 0) != kScenarioBootVtable || At<BYTE*>(boot, 0x28) != zone || At<DWORD>(boot, 0x2C) != 0 ||
         At<DWORD>(boot, 0x34) == 0)
-        return;
-    At<DWORD>(def, 8) = kTypeEnter;
-    Log("zones: script trigger %p (scene %lu) now starts when the player walks in, not on a button press", zone,
-        At<DWORD>(def, 0x14));
+        return false;
+    // Chris's look at the piano (Moon_Chris: his "never took piano lessons", which sets flag 17) shares the piano's
+    // spot. Once the flag is set it is left alone, or every press there played his line instead of the piano.
+    BYTE* stage = Stage();
+    if (stage && MusicKnown(stage) && strcmp(BootScript(zone), "Moon_Chris") == 0) return false;
+    return true;
 }
 
-void PressToEnter(BYTE* zone) {
-    __try {
-        PressToEnterUnsafe(zone);
-    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+// One press at the piano: as the player walks up to Chris's look (within 3 m of its zone), flag 17 is set for her
+// (all his look does besides his line), so her first press there plays the piano. Asked for 2026-11-09.
+void KnowMusicNearPiano(BYTE* root) {
+    BYTE* stage = Stage();
+    BYTE* me = SoloPlayer();
+    if (!stage || !me || MusicKnown(stage)) return;
+    ForEachScenarioZone(root, [stage, me](BYTE* zone) {
+        BYTE* area = At<BYTE*>(zone, 8);
+        if (!area || MusicKnown(stage) || strcmp(BootScript(zone), "Moon_Chris") != 0) return;
+        float dx = At<float>(area, 0x30) - At<float>(me, 0x30), dz = At<float>(area, 0x38) - At<float>(me, 0x38);
+        if (dx * dx + dz * dz > kPianoReach * kPianoReach) return;
+        _InterlockedOr(&At<volatile LONG>(stage, kStageFlags + 4 * (kMusicFlag >> 5)),
+                       static_cast<LONG>(0x80000000u >> (kMusicFlag & 31)));
+        Log("zones: player at the piano: flag %lu (Chris's look at the music) set, one press plays it", kMusicFlag);
+    });
+}
+
+void FlipPressZones(BYTE* root) {
+    ForEachScenarioZone(root, [](BYTE* zone) {
+        if (g_flippedCount == 64 || !PressZone(zone)) return;
+        BYTE* def = At<BYTE*>(zone, 4);
+        g_flipped[g_flippedCount++] = {def, At<DWORD>(def, 8), (At<BYTE>(zone, 0x1C) & 8) != 0};
+        At<DWORD>(def, 8) = kTypeEnter;
+    });
+    g_flippedAt = GetTickCount();
+}
+
+// Only definitions still in the live lists are touched (a reload frees the old ones).
+void RestorePressZones(BYTE* root) {
+    if (root)
+        ForEachScenarioZone(root, [](BYTE* zone) {
+            BYTE* def = At<BYTE*>(zone, 4);
+            for (int i = 0; i < g_flippedCount; ++i)
+                if (g_flipped[i].def == def && At<DWORD>(def, 8) == kTypeEnter) {
+                    At<DWORD>(def, 8) = g_flipped[i].type;
+                    if ((At<BYTE>(zone, 0x1C) & 8) && !g_flipped[i].fired)
+                        Log("zones: script trigger %p (scene %lu) started on the player's press", zone,
+                            At<DWORD>(def, 0x14));
+                }
+        });
+    g_flippedCount = 0;
 }
 
 }  // namespace
+
+namespace {
+void StartCheckpointTick(BYTE* root);
+}
 
 void ZoneTick() {
     static DWORD last;
@@ -125,12 +201,38 @@ void ZoneTick() {
         }
     }
     if (changed) Log("zones: %d both-players or partner-only zone(s) now need only the player", changed);
-    ForEachScenarioZone(root, [lin](BYTE* zone) {
-        if (lin) PressToEnter(zone);
+    __try {
+        StartCheckpointTick(root);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    ForEachScenarioZone(root, [](BYTE* zone) {
         if (At<DWORD>(zone, kCallback) != kPlatformStep) return;
         At<DWORD>(zone, kCallback) = reinterpret_cast<DWORD>(&PlatformStep);
         Log("zones: 5-3 platform callback wrapped (the partner's slot is filled for its player check)");
     });
+}
+
+// Watcher thread, every tick: Lost in Nightmares' press-to-start zones, on the player's press (see above). They stay
+// type 3 for 300 ms (several frames even at 30 fps), long enough for the game's zone pass to see the player inside.
+void ZonePressTick() {
+    static bool wasHeld;
+    auto root = *reinterpret_cast<BYTE**>(kAreaRoot);
+    __try {
+        if (g_flippedCount && GetTickCount() - g_flippedAt > 300) RestorePressZones(root);
+        bool lin = LostInNightmares() && !Partner();
+        static DWORD lastPiano;
+        if (lin && root && GetTickCount() - lastPiano >= 100) {
+            lastPiano = GetTickCount();
+            // Its own guard: a fault here must not clear the flipped list below and leave zones on type 3.
+            __try {
+                KnowMusicNearPiano(root);
+            } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        }
+        bool held = lin && LinActionHeld();
+        if (held && !wasHeld && root && !g_flippedCount) FlipPressZones(root);
+        wasHeld = held;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        g_flippedCount = 0;
+    }
 }
 
 // Checkpoint zones that a two-man lever's other side stands in (6-3, area 505: the scenario zone with scene
@@ -166,6 +268,38 @@ int ForceCheckpointZonesNear(float x, float z, float radius) {
 
 namespace {
 
+// Checkpoints (cScenarioArg_CHP zones) that co-op saves because the other player starts inside them. Lost in
+// Nightmares' final fight (area 706): after the intro (scene 14760) the checkpoint is the zone with scene 14770, a box
+// x 605..1270, z -1500..-620; Jill is placed at 482, -818, just outside it, so solo it never fired and a restart went
+// back to before the boss (14750). Once the scene is reached, the zone is fired with nobody inside (bit 0x10, as
+// above). Checked live 2026-11-09: it saved (scene and checkpoint 14770) and the fight went on.
+struct StartCheckpoint {
+    DWORD area, scene, checkpoint;
+};
+constexpr StartCheckpoint kStartCheckpoints[] = {{706, 14760, 14770}};
+
+void StartCheckpointTick(BYTE* root) {
+    BYTE* stage = Stage();
+    if (!stage || Partner()) return;
+    DWORD area = At<DWORD>(stage, 0x273D8), scene = At<DWORD>(stage, 0x273E0);
+    for (const StartCheckpoint& c : kStartCheckpoints) {
+        if (c.area != area || c.scene != scene) continue;
+        ForEachScenarioZone(root, [&](BYTE* zone) {
+            BYTE* def = At<BYTE*>(zone, 4);
+            if (!def || At<DWORD>(def, 0x14) != c.checkpoint) return;
+            volatile LONG& flags = At<volatile LONG>(zone, 0x1C);
+            if (flags & 0x18) return;  // forced already, or fired
+            _InterlockedOr(&flags, 0x10);
+            Log("zones: checkpoint zone %p (scene %lu) fires for the player starting outside it (area %lu)", zone,
+                c.checkpoint, area);
+        });
+    }
+}
+
+}  // namespace
+
+namespace {
+
 void UnwrapZones() {
     auto root = *reinterpret_cast<BYTE**>(kAreaRoot);
     if (!root) return;
@@ -181,6 +315,7 @@ void UnwrapZones() {
 // retry builds new zones each time, and a fixed list of them ran out).
 void ZoneShutdown() {
     __try {
+        if (g_flippedCount) RestorePressZones(*reinterpret_cast<BYTE**>(kAreaRoot));
         UnwrapZones();
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }

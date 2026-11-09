@@ -1,6 +1,6 @@
 # Known issues
 
-Current as of 1.0.0 (2026-11-08). The mod has not had a full playthrough of every chapter, so expect softlocks
+Current as of 1.1.0 (2026-11-09). The mod has not had a full playthrough of every chapter, so expect softlocks
 that aren't listed here. Saves are backed up automatically to `re5_solo_saves` next to the game's exe.
 
 ## Open bugs
@@ -22,6 +22,8 @@ that aren't listed here. Saves are backed up automatically to `re5_solo_saves` n
   prompt; as Sheva the mod plays the same crouch on her, with Chris's values as a guess. She seems to get hit
   sometimes anyway.
 - **2-3 jeep:** a stray orange aim arc shows on screen.
+- **120fps fix on stairs:** some stairs (e.g. Lost in Nightmares' area 700) still catch a little at 120 fps, mostly on
+  corners. The fix now widens the step only while that frees the player and backs off on stairs, where it made things worse.
 
 ## Not handled or not checked
 
@@ -34,9 +36,11 @@ that aren't listed here. Saves are backed up automatically to `re5_solo_saves` n
 
 ## Not tested
 
-- Lost in Nightmares (DLC) past area 705's cranks. It is always played as Jill. Not yet tested from a fresh start:
-  the sheet-music zone change (the piano was switched on by hand in testing) and the trap-room move. Area 705's
-  radio calls were skipped by hand (no audio device in testing), and one crank-enable flag (2) was set by hand
+- Lost in Nightmares (DLC) has been played through once as Jill, but parts were reached by checkpoint or by
+  skipping areas, not in one run: the trap-room move and the one-press piano (flag 17 set on approach; the piano
+  worked in two presses) haven't been seen from a fresh start. Area 705's radio calls were skipped by hand (no
+  audio device in testing), and one crank-enable flag (2) was set by hand. The final fight's checkpoint was seen
+  saving when fired by hand; the automatic version hasn't been seen yet.
 - The take-all gap on Organize (see above)
 - The borderless option on monitors other than 4K, and with more than one monitor (the window fits the one it is on)
 - Linux and Proton, including the launcher's Wine setup and the boat's XInput hook

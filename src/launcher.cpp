@@ -22,6 +22,9 @@
 #include <string>
 #include <vector>
 
+#include "update.h"
+#include "version.h"
+
 bool SceneFilesInstalled(const std::wstring& game);                    // scenefiles.cpp
 bool InstallSceneFiles(const std::wstring& game, std::wstring& error);
 void RemoveSceneFiles(const std::wstring& game);
@@ -46,7 +49,7 @@ constexpr Setting kSettings[] = {
     {L"re5_solo_ndesuhalf.txt", L"Ndesu's main bulb at half health (2-3 boss, 13000)"},
     {L"re5_solo_borderless.txt", L"Borderless window (keeps running when you tab out)"},
     {L"re5_solo_120fps.txt", L"120fps fix (no getting stuck on scenery above 60 fps)"},
-    {L"re5_solo_debug.txt", L"Debug keys (F9 / F10)"},
+    {L"re5_solo_debug.txt", L"Debug keys (F9 / F10, F11 skips the area)"},
     {L"re5_solo_trace.txt", L"Script tracer (writes level-script steps to re5_solo.log)"},
 };
 constexpr int kSettingCount = sizeof kSettings / sizeof kSettings[0];
@@ -528,6 +531,7 @@ constexpr COLORREF kDanger = RGB(240, 118, 124);   // Uninstall
 constexpr COLORREF kOk = RGB(158, 206, 106), kWarn = RGB(229, 192, 123);  // status dot
 
 constexpr wchar_t kTitle[] = L"RE5 Solo Launcher";
+constexpr UINT kUpdateMessage = WM_APP + 1;
 int g_dpi = 96;
 int S(int px) { return MulDiv(px, g_dpi, 96); }
 
@@ -650,7 +654,7 @@ void Paint(HDC dc, const RECT& client) {
     RECT h = Scaled(g_header);
     Text(dc, L"Resident Evil 5", RECT{h.left, h.top + S(9), h.right, h.top + S(31)}, g_titleFont, kText,
          DT_CENTER | DT_SINGLELINE);
-    Text(dc, L"Solo Launcher", RECT{h.left, h.top + S(30), h.right, h.bottom - S(6)}, g_smallFont, kMuted,
+    Text(dc, L"Solo Launcher " RE5SOLO_VERSION, RECT{h.left, h.top + S(30), h.right, h.bottom - S(6)}, g_smallFont, kMuted,
          DT_CENTER | DT_SINGLELINE);
     // Section labels, inside their cards.
     int m = S(26);
@@ -798,6 +802,21 @@ LRESULT CALLBACK WindowProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
         SetBkColor(dc, field ? kField : kCard);
         return reinterpret_cast<LRESULT>(field ? g_fieldBrush : g_cardBrush);
     }
+    case kUpdateMessage: {  // a newer release (update.cpp)
+        auto release = reinterpret_cast<Release*>(lp);
+        std::wstring notes = release->notes.size() > 700 ? release->notes.substr(0, 700) + L"..." : release->notes;
+        std::wstring text = (release->name.empty() ? release->tag : release->name) + L" is out (you have " +
+                            RE5SOLO_VERSION + L").\n\n" + (notes.empty() ? L"" : notes + L"\n\n") +
+                            L"Update now? The launcher downloads it, restarts, and updates the mod in the game folder.";
+        if (MessageBoxW(w, text.c_str(), L"RE5 Solo update", MB_YESNO | MB_ICONINFORMATION) == IDYES) {
+            SetCursor(LoadCursorW(nullptr, IDC_WAIT));
+            std::wstring error;
+            if (ApplyUpdate(*release, error)) DestroyWindow(w);
+            else MessageBoxW(w, error.c_str(), L"RE5 Solo update", MB_ICONERROR);
+        }
+        delete release;
+        return 0;
+    }
     case WM_DESTROY: PostQuitMessage(0); return 0;
     }
     return DefWindowProcW(w, msg, wp, lp);
@@ -805,7 +824,9 @@ LRESULT CALLBACK WindowProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
 
 }  // namespace
 
-int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
+int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int show) {
+    bool updated = commandLine && wcsstr(commandLine, L"--updated");
+    if (updated) CleanUpAfterUpdate();
     SetProcessDPIAware();
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     INITCOMMONCONTROLSEX icc{sizeof icc, ICC_STANDARD_CLASSES};
@@ -837,6 +858,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     SetGame(FindGame());
     Refresh();
     ShowWindow(g_window, show);
+    if (updated) {
+        // The new launcher carries the new mod: bring an installed copy up to date straight away.
+        if (g_state == State::Outdated) Install();
+        std::wstring text = L"Updated to " RE5SOLO_VERSION L".";
+        if (g_state == State::UpToDate) text += L" The mod in the game folder is up to date too.";
+        MessageBoxW(g_window, text.c_str(), L"RE5 Solo update", MB_ICONINFORMATION);
+    } else {
+        StartUpdateCheck(g_window, kUpdateMessage);
+    }
 
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0)) {

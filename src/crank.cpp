@@ -38,8 +38,31 @@ bool IsLocked(BYTE* crank) {
     return false;
 }
 
-constexpr DWORD kSetActionSlot = 0xDC / 4, kActWait = 0, kActRewind = 2;  // uOmCrank actions: 0 wait, 1 wind, 2 rewind
-constexpr DWORD kRewindVtable = 0xFCCB80;  // uOmCrank::cActRewind
+// Per locked crank, kept beside its g_locked entry: the last drop check (CeilingUpdate) and what it last saw.
+DWORD g_baitAt[16];
+int g_seen[16];
+
+int LockIndex(BYTE* crank) {
+    for (int i = 0; i < 16; ++i)
+        if (g_locked[i] == crank) return i;
+    return -1;
+}
+
+DWORD* BaitTimer(BYTE* crank) {
+    int i = crank ? LockIndex(crank) : -1;
+    return i < 0 ? nullptr : &g_baitAt[i];
+}
+
+int& Seen(BYTE* crank) {
+    static int none;
+    int i = LockIndex(crank);
+    if (i < 0) return none = -1;
+    return g_seen[i];
+}
+
+constexpr DWORD kSetActionSlot = 0xDC / 4, kActWait = 0, kActWind = 1, kActRewind = 2;  // uOmCrank actions
+constexpr DWORD kActionIndex = 0x10E0;  // the current action's id
+constexpr DWORD kRewindVtable = 0xFCCB80, kWaitVtable = 0xFCCB58;  // uOmCrank::cActRewind, cActWait
 
 constexpr DWORD kCeilVtable = 0x1010D08, kCeilCrank = 0x197C, kCeilMin = 0x1A00, kCeilMax = 0x1A10;
 constexpr DWORD kEm20Dti = 0x11EABC8;  // uEm20, the axe man's family
@@ -52,10 +75,29 @@ bool DescendsFrom(BYTE* object, DWORD dti) {
     return false;
 }
 
-bool InBox(BYTE* ceil, BYTE* unit) {
-    float x = At<float>(unit, 0x30), y = At<float>(unit, 0x34), z = At<float>(unit, 0x38);
-    return x >= At<float>(ceil, kCeilMin) && x <= At<float>(ceil, kCeilMax) && y >= At<float>(ceil, kCeilMin + 4) &&
-           y <= At<float>(ceil, kCeilMax + 4) && z >= At<float>(ceil, kCeilMin + 8) && z <= At<float>(ceil, kCeilMax + 8);
+// The box is far wider than the ceiling (about 446 each way from its middle, measured on the blue one 2026-11-09):
+// a player standing back at its edge kept the ceiling from ever dropping on the axe man. The player counts as under
+// it only in the middle part (`share` of each half-width); an enemy anywhere in the box.
+bool InBox(BYTE* ceil, BYTE* unit, float share = 1.0f) {
+    for (int i = 0; i < 3; ++i) {
+        float lo = At<float>(ceil, kCeilMin + 4 * i), hi = At<float>(ceil, kCeilMax + 4 * i);
+        float mid = (lo + hi) / 2, half = (hi - lo) / 2 * (i == 1 ? 1.0f : share);
+        float v = At<float>(unit, 0x30 + 4 * i);
+        if (v < mid - half || v > mid + half) return false;
+    }
+    return true;
+}
+constexpr float kPlayerUnderShare = 0.6f;
+
+void __fastcall CeilingUpdate(BYTE* ceil, void* edx);
+constexpr DWORD kCeilUpdateSlot = 0x160;
+
+// A ceiling, on the game's vtable or on our copy (PatchCeiling): matching the game's alone missed every patched
+// ceiling, so the mod's drop never found one (2026-11-09).
+bool IsCeiling(BYTE* u) {
+    DWORD* vt = At<DWORD*>(u, 0);
+    return reinterpret_cast<DWORD>(vt) == kCeilVtable ||
+           vt[kCeilUpdateSlot / 4] == reinterpret_cast<DWORD>(&CeilingUpdate);
 }
 
 // Lost in Nightmares' ceiling traps: is it time to let this crank's ceiling drop?
@@ -64,14 +106,51 @@ bool CeilingBait(BYTE* crank) {
     if (!stage || At<DWORD>(stage, 0x273D8) != 705 || Partner() || !SoloPlayer()) return false;
     BYTE* ceil = nullptr;
     ForEachUnit([&](BYTE* u) {
-        if (!ceil && At<DWORD>(u, 0) == kCeilVtable && At<BYTE*>(u, kCeilCrank) == crank) ceil = u;
+        if (!ceil && IsCeiling(u) && At<BYTE*>(u, kCeilCrank) == crank) ceil = u;
     });
-    if (!ceil || InBox(ceil, SoloPlayer())) return false;
-    bool enemy = false;
+    if (!ceil) return false;
+    bool player = InBox(ceil, SoloPlayer(), kPlayerUnderShare), enemy = false;
     ForEachUnit([&](BYTE* u) {
         if (!enemy && DescendsFrom(u, kEm20Dti) && InBox(ceil, u)) enemy = true;
     });
-    return enemy;
+    int seen = enemy * 2 + player;
+    int& lastSeen = Seen(crank);  // logged on change, to see why a ceiling holds
+    if (seen != lastSeen) {
+        lastSeen = seen;
+        Log("crank %p: ceiling %p has %s under it, %s", crank, ceil, enemy ? "an axe man" : "no axe man",
+            player ? "and the player too (it holds)" : "not the player");
+    }
+    return enemy && !player;
+}
+
+// The rewind starts its winding-down loop (sound request 1) and only stops it at the bottom (requests 3 and 4,
+// 0xAB2D47); leaving the rewind for waiting stops nothing (its exit, 0xAB1670, is a bare ret), so a locked crank kept
+// sounding as if winding down (2026-11-09). Request 3 is sent the way the rewind sends it: the crank's sound id for
+// it (0xAB26D0, thiscall on the crank) to the sound manager ([0x11B1D0C], 0x7A4630).
+constexpr DWORD kSoundId = 0xAB26D0, kSoundManager = 0x11B1D0C, kSoundRequest = 0x7A4630, kSoundOwner = 0x1454;
+constexpr int kRewindSoundStop = 3;
+
+void StopRewindSound(BYTE* crank) {
+    __try {
+        auto manager = *reinterpret_cast<void**>(kSoundManager);
+        if (!manager) return;
+        DWORD id = ThisCall<DWORD>(kSoundId, crank, kRewindSoundStop);
+        ThisCall(kSoundRequest, manager, At<DWORD>(crank, kSoundOwner), id, crank, crank, 0);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
+// Unlocks the crank and lets its ceiling drop once the axe man is under it (see CeilingBait).
+bool DropIfBaited(BYTE* crank) {
+    if (!CeilingBait(crank)) return false;
+    for (BYTE*& c : g_locked)
+        if (c == crank) c = nullptr;
+    // Nobody holds it, so nothing unwinds it: the crank is put in its rewind action (id 2, through its action
+    // setter, vtable +0xDC, called as the ceiling's own code does at 0xB33621), which unwinds it while the
+    // ceiling falls (cActFall). Changing the wind alone (to 0, or running it down) left the ceiling in cActRise,
+    // which only rises, until it went to cActLand in mid-air: drawn up there with its collision on the floor.
+    ThisCall(At<DWORD*>(crank, 0)[kSetActionSlot], crank, kActRewind, 1, 0, -1, 0);
+    Log("crank %p: an axe man is under its ceiling and the player is not, let go so it drops", crank);
+    return true;
 }
 
 void AfterCrankUpdate(BYTE* crank) {
@@ -83,21 +162,22 @@ void AfterCrankUpdate(BYTE* crank) {
     float cap = At<float>(crank, kWindMax) * fraction;
     if (!IsLocked(crank)) {
         if (At<float>(crank, kWind) < cap) return;
+        // A free entry, else the oldest goes (retries make new cranks; a full table logged this every frame).
+        static unsigned next;
+        bool added = false;
         for (BYTE*& c : g_locked)
             if (!c) {
-                c = crank;
+                c = crank, added = true;
                 break;
             }
+        if (!added) g_locked[next++ % (sizeof g_locked / sizeof g_locked[0])] = crank;
+        int i = LockIndex(crank);
+        g_baitAt[i] = 0, g_seen[i] = -1;
         Log("crank %p: gate reached its cap (%.0f), locked open", crank, cap);
-    } else if (CeilingBait(crank)) {
-        for (BYTE*& c : g_locked)
-            if (c == crank) c = nullptr;
-        // Nobody holds it, so nothing unwinds it: the crank is put in its rewind action (id 2, through its action
-        // setter, vtable +0xDC, called as the ceiling's own code does at 0xB33621), which unwinds it while the
-        // ceiling falls (cActFall). Changing the wind alone (to 0, or running it down) left the ceiling in cActRise,
-        // which only rises, until it went to cActLand in mid-air: drawn up there with its collision on the floor.
-        ThisCall(At<DWORD*>(crank, 0)[kSetActionSlot], crank, kActRewind, 1, 0, -1, 0);
-        Log("crank %p: an axe man is under its ceiling and the player is not, let go so it drops", crank);
+        // Already waiting (the mod reloaded with it locked): a winding-down loop may still be playing.
+        BYTE* now = At<BYTE*>(crank, kAction);
+        if (LostInNightmares() && now && At<DWORD>(now, 0) == kWaitVtable) StopRewindSound(crank);
+    } else if (DropIfBaited(crank)) {
         return;
     }
     At<float>(crank, kWind) = cap;
@@ -107,8 +187,53 @@ void AfterCrankUpdate(BYTE* crank) {
     // ceilings follow the crank's action: on its rewind a ceiling fell, and with the wind held it went to cActLand
     // in mid-air (drawn up high, its collision on the floor: an invisible platform).
     BYTE* action = At<BYTE*>(crank, kAction);
-    if (LostInNightmares() && action && At<DWORD>(action, 0) == kRewindVtable)
+    if (LostInNightmares() && action && At<DWORD>(action, 0) == kRewindVtable) {
         ThisCall(At<DWORD*>(crank, 0)[kSetActionSlot], crank, kActWait, 1, 0, -1, 0);
+        StopRewindSound(crank);
+    }
+}
+
+// Area 705's ceilings stay up (cActRise) only while their crank's action index (+0x10E0) is 1, being wound
+// (0xB33ABC); with a locked crank waiting, the ceiling fell (cActFall) and landed at once in mid-air (cActLand at
+// the top): drawn up high, its collision on the floor, an invisible platform. So for the ceiling's own update (vtable
+// +0x160, 0xB31DE0) a locked, waiting crank reports 1, and is put back after. (Checked live 2026-11-09: a landed
+// ceiling went back to rising and the platform went. Leaving the crank at 1 for good kept pulling the player back
+// onto the handle.) The drop above sets the rewind (2), and the ceiling falls as usual.
+constexpr DWORD kCeilUpdate = 0xB31DE0;
+constexpr DWORD kCeilLandVtable = 0x101097C, kCeilRiseVtable = 0x10109A4;  // uOmS705ceil::cActLand, cActRise
+
+void __fastcall CeilingUpdate(BYTE* ceil, void* edx) {
+    BYTE* crank = At<BYTE*>(ceil, kCeilCrank);
+    // The drop is checked here too: an idle locked crank stops updating, so its own check never ran (2026-11-09).
+    // Every 100 ms per crank (one shared timer let only the first ceiling in update order ever check).
+    DWORD* lastBait = BaitTimer(crank);
+    if (lastBait && GetTickCount() - *lastBait > 100) {
+        *lastBait = GetTickCount();
+        __try {
+            DropIfBaited(crank);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+    bool fake = crank && IsLocked(crank) && At<DWORD>(crank, kActionIndex) == kActWait;
+    if (fake) At<DWORD>(crank, kActionIndex) = kActWind;
+    reinterpret_cast<void(__fastcall*)(BYTE*, void*)>(kCeilUpdate)(ceil, edx);
+    if (fake && At<DWORD>(crank, kActionIndex) == kActWind) At<DWORD>(crank, kActionIndex) = kActWait;
+
+    // The game's own trap went off (it rewinds the crank, 0xB33A30, and the ceiling falls, stops on or breaks over
+    // the axe man), or the ceiling is otherwise done: the lock lets go. Kept locked, the crank's rewind was turned
+    // back into waiting and it stayed wound beside the broken ceiling, making a constant noise (2026-11-09).
+    if (!crank || !IsLocked(crank)) return;
+    BYTE* action = At<BYTE*>(ceil, kAction);
+    DWORD act = action ? At<DWORD>(action, 0) : 0;
+    bool rewinding = At<DWORD>(crank, kActionIndex) == kActRewind;
+    if (act == kCeilLandVtable || act == kCeilRiseVtable) return;  // still up, or waiting to be wound
+    for (BYTE*& c : g_locked)
+        if (c == crank) c = nullptr;
+    if (!rewinding) ThisCall(At<DWORD*>(crank, 0)[kSetActionSlot], crank, kActRewind, 1, 0, -1, 0);
+    Log("crank %p: its ceiling's trap went off (ceiling action %08X), the crank lets go", crank, act);
+}
+
+void PatchCeiling(DWORD* copy) {
+    copy[kCeilUpdateSlot / 4] = reinterpret_cast<DWORD>(&CeilingUpdate);
 }
 
 }  // namespace
@@ -170,6 +295,10 @@ void CrankButtonTick() {
     last = GetTickCount();
     if (!LostInNightmares() || Partner() || !SoloPlayer()) return;
     ForEachUnit([](BYTE* u) {
+        if (At<DWORD>(u, 0) == kCeilVtable) {
+            PatchObject(u, kCeilVtable, PatchCeiling);
+            return;
+        }
         if (!DescendsFrom(u, kCrankDti)) return;
         PatchGrabButton(u);
         // A wound crank not hooked yet (e.g. after the mod reloads): hook it so its lock and ceiling drop run.

@@ -35,12 +35,12 @@ set "CL_FLAGS=/nologo /std:c++20 /EHa /O2 /MT /LD /W4 /DNOMINMAX /DWIN32_LEAN_AN
 set "S=%HERE%src\"
 cl %CL_FLAGS% "%S%loader.cpp" "%S%crashlog.cpp" "%S%padhook.cpp" /Fe:"dinput8.dll" /link /Brepro /DEF:"%S%dinput8.def" user32.lib dbghelp.lib
 if errorlevel 1 goto :failed
-cl %CL_FLAGS% "%S%core.cpp" "%S%solo.cpp" "%S%boat.cpp" "%S%objhook.cpp" "%S%gap.cpp" "%S%record.cpp" "%S%elevator.cpp" "%S%crank.cpp" "%S%box.cpp" "%S%croc.cpp" "%S%debug.cpp" "%S%lever.cpp" "%S%lift.cpp" "%S%jeep.cpp" "%S%ndesu.cpp" "%S%enemyhp.cpp" "%S%wesker.cpp" "%S%xinput.cpp" "%S%dinput.cpp" "%S%hint.cpp" "%S%sheva.cpp" "%S%script.cpp" "%S%zones.cpp" "%S%split.cpp" "%S%twist.cpp" "%S%collapse.cpp" "%S%pulley.cpp" "%S%cage.cpp" "%S%voice.cpp" "%S%filter.cpp" "%S%borderless.cpp" "%S%uroboros.cpp" "%S%backup.cpp" "%S%inventory.cpp" "%S%death.cpp" "%S%localjoin.cpp" "%S%snag.cpp" "%S%piano.cpp" /Fe:"re5_solo_core.dll" /link /Brepro user32.lib advapi32.lib shell32.lib
+cl %CL_FLAGS% "%S%core.cpp" "%S%solo.cpp" "%S%boat.cpp" "%S%objhook.cpp" "%S%gap.cpp" "%S%record.cpp" "%S%elevator.cpp" "%S%crank.cpp" "%S%box.cpp" "%S%croc.cpp" "%S%debug.cpp" "%S%lever.cpp" "%S%lift.cpp" "%S%jeep.cpp" "%S%ndesu.cpp" "%S%enemyhp.cpp" "%S%wesker.cpp" "%S%xinput.cpp" "%S%dinput.cpp" "%S%hint.cpp" "%S%sheva.cpp" "%S%script.cpp" "%S%zones.cpp" "%S%split.cpp" "%S%twist.cpp" "%S%collapse.cpp" "%S%pulley.cpp" "%S%cage.cpp" "%S%voice.cpp" "%S%filter.cpp" "%S%borderless.cpp" "%S%uroboros.cpp" "%S%backup.cpp" "%S%inventory.cpp" "%S%death.cpp" "%S%localjoin.cpp" "%S%snag.cpp" "%S%piano.cpp" "%S%jump.cpp" /Fe:"re5_solo_core.dll" /link /Brepro user32.lib advapi32.lib shell32.lib
 if errorlevel 1 goto :failed
 REM The launcher carries both DLLs (launcher.rc), so it is the one file to hand out.
 rc /nologo /i "%OUT_DIR%" /fo launcher.res "%S%launcher.rc"
 if errorlevel 1 goto :failed
-cl /nologo /std:c++20 /EHsc /O2 /MT /W4 /DNOMINMAX /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /Brepro "%S%launcher.cpp" "%S%scenefiles.cpp" launcher.res /Fe:"RE5 Solo Launcher.exe" /link /Brepro /SUBSYSTEM:WINDOWS /MANIFEST:EMBED user32.lib gdi32.lib shell32.lib ole32.lib comctl32.lib advapi32.lib dwmapi.lib
+cl /nologo /std:c++20 /EHsc /O2 /MT /W4 /DNOMINMAX /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /Brepro "%S%launcher.cpp" "%S%scenefiles.cpp" "%S%update.cpp" launcher.res /Fe:"RE5 Solo Launcher.exe" /link /Brepro /SUBSYSTEM:WINDOWS /MANIFEST:EMBED user32.lib gdi32.lib shell32.lib ole32.lib comctl32.lib advapi32.lib dwmapi.lib winhttp.lib shlwapi.lib bcrypt.lib
 if errorlevel 1 goto :failed
 popd
 echo [build] SUCCESS  %OUT_DIR%\dinput8.dll, re5_solo_core.dll, RE5 Solo Launcher.exe

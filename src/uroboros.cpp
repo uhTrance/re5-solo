@@ -71,6 +71,25 @@ void __fastcall DeAreaUpdate(BYTE* area, void*) {
 
 void PatchDeArea(DWORD* copy) { copy[kAreaUpdateSlot] = reinterpret_cast<DWORD>(&DeAreaUpdate); }
 
+// Lost in Nightmares' basement (area 705, aS705, vtable 0xF579B0): its wake-up runs in steps (+0x6EC). Step 1 waits
+// until players 0 and 1 are both in and ready (+0x14 >= 1 and +0x15 >= 1, counted at 0x761C27, needing 2); step 2
+// gives each the aS705::Motion action (DTI object 0x11B1698, through the player's vtable +0xE0), the wake-up
+// animation under the camera's pan. Alone the count stays 1, so Jill never got up (seen 2026-11-09, confirmed against
+// vanilla co-op, where both players take that action at scene 14700). With the player ready and no partner, step 1
+// is passed for her, just before the controller's own update.
+constexpr DWORD kS705Vtable = 0xF579B0, kWakeStep = 0x6EC;
+
+void __fastcall S705Update(BYTE* area, void*) {
+    BYTE* me = SoloPlayer();
+    if (At<BYTE>(area, kWakeStep) == 1 && me && !Partner() && At<BYTE>(me, 0x14) >= 1 && At<BYTE>(me, 0x15) >= 1) {
+        At<BYTE>(area, kWakeStep) = 2;
+        Log("basement wake-up: the player is ready alone, the wake-up motion goes ahead");
+    }
+    ThisCall(reinterpret_cast<DWORD*>(kS705Vtable)[kAreaUpdateSlot], area);
+}
+
+void PatchS705(DWORD* copy) { copy[kAreaUpdateSlot] = reinterpret_cast<DWORD>(&S705Update); }
+
 // Uroboros Mkono (5-2) only opens up for the flamethrower at 30 fps. Its body opens (cEm41ActDisclose, which sets
 // exposed +0x20B6, the only time part hits do real damage) when the AI sees flag 8 in +0x1E2C, set by its hit handler
 // (vtable +0x208, 0x8B4D80) once a heat meter (+0x2148) passes 2200. Each flame hit adds (30 - n) * 3 times the
@@ -126,6 +145,8 @@ void UroborosTick() {
     }
     if (area && At<DWORD>(area, 0) == kDeAreaVtable && PatchObject(area, kDeAreaVtable, PatchDeArea))
         Log("Desperate Escape area %p: empty player slots filled during its update", area);
+    if (area && At<DWORD>(area, 0) == kS705Vtable && PatchObject(area, kS705Vtable, PatchS705))
+        Log("basement area %p: its wake-up no longer waits for two players", area);
     BYTE* stage = Stage();
     DWORD scene = stage ? At<DWORD>(stage, kStageScene) : 0;
     bool s103 = area && area == patched && At<DWORD>(area, 0) >= 0x1928000;  // still on our vtable copy

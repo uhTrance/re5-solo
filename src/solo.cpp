@@ -183,13 +183,63 @@ void HideUnit(BYTE* unit) {
     if (reinterpret_cast<DWORD*>(vt)[kDrawSlot / 4] == kModelDraw) PatchObject(unit, vt, NoDrawPatch);
 }
 
+// Leaving 4-2's area with Chris still out of the list, the unload frees his weapons (units of their own) but not
+// him, and his inventory still names them. A later call on him walked those slots and faulted on a freed weapon's
+// vtable (0xC4E017 via his +0x88, 2026-11-09, on reaching the next area). His inventory's unit pointers are cleared,
+// which the game's loops skip: 24 entries of 0x30 at +0x21A4 (0xC4B700 returns base + 4 + 0x30 * i, base +0x21A0),
+// the unit at entry +0x2C, so at +0x21D0 + 0x30 * i (checked in that crash's dump: his units sat there).
+// Only a fallback now: ManagerRemoveAll below normally takes him away with the other players. It runs once the next
+// area's player exists, as "remove all" has run by then without claiming him (so he was never freed).
+constexpr DWORD kInventoryUnits = 0x21D0;
+constexpr int kInventoryEntries = 0x18;
+
+void OrphanChris(BYTE* chris) {
+    __try {
+        for (int i = 0; i < kInventoryEntries; ++i) At<BYTE*>(chris, kInventoryUnits + kInventoryStride * i) = nullptr;
+        Log("partner: area left with Chris %p out of the player list; his freed weapons are no longer named", chris);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
+// The real fix: the game unloads an area's players through the player manager's "remove all" (vtable +0x14,
+// 0x7E94B0), which runs removePlayer (0x7E6C20: clears the slot, lowers the count +0x34, then the unit's +0x80 and
+// +0x30) on each of the 4 slots. Out of the list, Chris was skipped and lived on into the next area, where a quit
+// to the menu ran his code into the freed stage (0xC6C487 via 0xB83494, 2026-11-07 and 2026-11-09). So just before
+// it runs he goes back in his slot and is removed with the others (the count still includes him: taking him out
+// never lowered it). The manager is already hooked (gap.cpp), so this is a slot of its copy.
+constexpr DWORD kManagerRemoveAll = 0x14, kRemoveAllFn = 0x7E94B0;
+
+// Claims the out-of-list Chris (game thread here, watcher in the fallback): whoever swaps him out of g_outChris owns
+// him, so the two can never both act on him.
+BYTE* TakeOutChris() {
+    return static_cast<BYTE*>(InterlockedExchangePointer(reinterpret_cast<void* volatile*>(&g_outChris), nullptr));
+}
+
+void __fastcall ManagerRemoveAll(BYTE* manager, void*) {
+    if (g_outChris && g_outEntry && reinterpret_cast<BYTE*>(g_outEntry) == manager + 0x24 + 4 * PartnerSlot() &&
+        !*g_outEntry)
+        if (BYTE* chris = TakeOutChris()) {
+            *g_outEntry = chris;
+            Log("partner: players being removed, Chris %p back in his slot to be removed with them", chris);
+        }
+    ThisCall(kRemoveAllFn, manager);
+}
+
 void HidePartnerTick() {
     static DWORD hiddenClass;
+    if (g_outChris)
+        if (auto manager = *reinterpret_cast<BYTE**>(kPlayerList))
+            PatchHookedSlot(manager, kManagerRemoveAll, reinterpret_cast<DWORD>(&ManagerRemoveAll));
     if (!PartnerArea()) {
         g_hiddenChris = nullptr;
+        // Still out once the players were gone and the next area's player exists: "remove all" passed him by
+        // (fallback, see OrphanChris). Not before the list empties: the old player may still be in it.
+        static bool emptied;
+        if (!g_outChris) emptied = false;
+        else if (!SoloPlayer()) emptied = true;
+        else if (emptied)
+            if (BYTE* out = TakeOutChris()) OrphanChris(out);
         if (hiddenClass) {
             RestoreHookedSlot(hiddenClass, kDrawSlot);
-            g_outChris = nullptr;
             Log("partner: Chris's class %08lX draws again", hiddenClass);
             hiddenClass = 0;
         }
@@ -248,6 +298,7 @@ void Tick() {
     BackupTick();  // also in record mode
     PlayerTick();  // likewise (the 120fps fix)
     EnemySnagTick();
+    JumpTick();  // a testing tool, also in record mode
     if (RecordMode()) {  // vanilla co-op, only watch the jumps
         RecordTick();
         ScriptTick();
@@ -305,6 +356,7 @@ void Tick() {
     DebugTick();
     ScriptTick();
     ZoneTick();
+    ZonePressTick();
     PianoTick();
 }
 

@@ -28,9 +28,28 @@ constexpr int kMaxObjects = 4096;
 BYTE* g_objects[kMaxObjects];
 LONG g_objectCount;
 
+bool IsOurCopy(const DWORD* vt);
+
+bool StillOurs(BYTE* object) {
+    __try {
+        return IsOurCopy(At<DWORD*>(object, 0));
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+// Nothing is ever untracked as objects die, so a long session filled the table and later objects went untracked
+// (left on a copy in a freed DLL after a reload). When full, entries no longer on one of our copies are dropped.
 void Track(BYTE* object) {
     for (LONG i = 0; i < g_objectCount; ++i)
         if (g_objects[i] == object) return;
+    if (g_objectCount == kMaxObjects) {
+        LONG kept = 0;
+        for (LONG i = 0; i < g_objectCount; ++i)
+            if (StillOurs(g_objects[i])) g_objects[kept++] = g_objects[i];
+        Log("hooked-object table full: %ld of %d still hooked, the rest dropped", kept, kMaxObjects);
+        g_objectCount = kept;
+    }
     if (g_objectCount < kMaxObjects) g_objects[g_objectCount++] = object;
 }
 
@@ -130,7 +149,8 @@ struct Patched {
     void (*patch)(DWORD* copy);
     DWORD copy[kVtableCopy];
 };
-constexpr LONG kMaxPatched = 24;  // 8 ran short once the 6-2 chase hid Chris's weapons and items
+constexpr LONG kMaxPatched = 256;  // 8 ran short once the 6-2 chase hid Chris's weapons and items; 24 could fill up
+                                   // in one long session with the 120fps fix patching each enemy class that snags
 Patched g_patched[kMaxPatched];
 LONG g_patchedCount;
 
@@ -161,6 +181,15 @@ bool PatchObject(BYTE* object, DWORD classVtable, void (*patch)(DWORD* copy)) {
     Log("patched object %p (class vtable %08X)", object, classVtable);
     return true;
 }
+
+namespace {
+bool IsOurCopy(const DWORD* vt) {
+    if (ByCopy(vt)) return true;
+    for (LONG k = 0; k < g_patchedCount; ++k)
+        if (g_patched[k].copy == vt) return true;
+    return false;
+}
+}  // namespace
 
 // CoreShutdown, after the watcher has stopped: every tracked object still on one of our copies gets its class
 // vtable back (one aligned dword write; an object since freed no longer points at a copy and is skipped).

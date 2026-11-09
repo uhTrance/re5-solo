@@ -113,6 +113,11 @@ LONG CALLBACK OnException(EXCEPTION_POINTERS* ep) {
 
 // The fault nobody handled: the process is about to end.
 LONG WINAPI OnUnhandled(EXCEPTION_POINTERS* ep) {
+    // A filter set after ours may chain back to us, and we to it (KeepFilter takes it as the previous one): a
+    // second entry on the same thread stops the loop.
+    static thread_local bool inside;
+    if (inside) return EXCEPTION_CONTINUE_SEARCH;
+    inside = true;
     static LONG once;
     if (InterlockedExchange(&once, 1) == 0) {
         auto rec = ep->ExceptionRecord;
@@ -128,7 +133,9 @@ LONG WINAPI OnUnhandled(EXCEPTION_POINTERS* ep) {
         g_dumped = 1;
         WriteDump(ep);
     }
-    return g_previous ? g_previous(ep) : EXCEPTION_CONTINUE_SEARCH;
+    LONG r = g_previous ? g_previous(ep) : EXCEPTION_CONTINUE_SEARCH;
+    inside = false;
+    return r;
 }
 
 DWORD WINAPI KeepFilter(LPVOID) {
