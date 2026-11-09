@@ -5,7 +5,8 @@ reworked so one player can do it. There is no ghost partner. The removed charact
 cutscenes.
 
 This is still in testing: see [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for the bugs and gaps so far. The rest of this file
-is technical notes.
+is technical notes. [KNOWLEDGE.md](KNOWLEDGE.md) is the guide for other modders: how the engine works, the methods
+and the co-op-to-solo bug patterns, with worked case studies.
 
 ## Target
 
