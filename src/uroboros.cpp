@@ -51,6 +51,26 @@ void __fastcall AreaUpdate(BYTE* area, void*) {
 
 void PatchArea(DWORD* copy) { copy[kAreaUpdateSlot] = reinterpret_cast<DWORD>(&AreaUpdate); }
 
+// A Desperate Escape area controller (vtable 0xF57810, update +0x1C = 0x7604D0) checks players 0 and 1 for a
+// state (0xB56600, reads +0x10E0) without testing for an empty slot (0x760970), so it crashed as a cutscene was
+// due (logged 2026-11-08: read of 0x10E0 at 0xB56603). For that update an empty slot 0 or 1 holds the player too.
+constexpr DWORD kDeAreaVtable = 0xF57810;
+
+void __fastcall DeAreaUpdate(BYTE* area, void*) {
+    auto players = *reinterpret_cast<BYTE**>(kPlayerList);
+    BYTE* player = SoloPlayer();
+    BYTE** slots = players ? &At<BYTE*>(players, 0x24) : nullptr;
+    bool filled[2] = {};
+    if (slots && player)
+        for (int i = 0; i < 2; ++i)
+            if (!slots[i]) slots[i] = player, filled[i] = true;
+    ThisCall(reinterpret_cast<DWORD*>(kDeAreaVtable)[kAreaUpdateSlot], area);
+    for (int i = 0; i < 2; ++i)
+        if (filled[i] && slots[i] == player) slots[i] = nullptr;
+}
+
+void PatchDeArea(DWORD* copy) { copy[kAreaUpdateSlot] = reinterpret_cast<DWORD>(&DeAreaUpdate); }
+
 // Uroboros Mkono (5-2) only opens up for the flamethrower at 30 fps. Its body opens (cEm41ActDisclose, which sets
 // exposed +0x20B6, the only time part hits do real damage) when the AI sees flag 8 in +0x1E2C, set by its hit handler
 // (vtable +0x208, 0x8B4D80) once a heat meter (+0x2148) passes 2200. Each flame hit adds (30 - n) * 3 times the
@@ -81,6 +101,13 @@ bool __fastcall MkonoHit(BYTE* self, void*, void* hit) {
 
 void PatchMkono(DWORD* copy) { copy[kMkonoHitSlot] = reinterpret_cast<DWORD>(&MkonoHit); }
 
+// Lost in Nightmares, area 705: uEmIntel70 and uEmIntel65 (the enemies there) take player 0 as their target and
+// never pick another, so with Chris's slot empty their target (+0x2C) stays null and they stand about, as the
+// Uroboros did (seen 2026-11-09). Like the game's own setters (e.g. 0x9C19C7), the player goes in the AI's target and
+// in its enemy's copy (+0x280 -> +0x1BA4).
+constexpr DWORD kLinIntelVtables[] = {0xF977B8, 0xF97348};
+constexpr DWORD kIntelTarget = 0x2C, kIntelUnit = 0x280, kUnitTarget = 0x1BA4;
+
 }  // namespace
 
 // Watcher thread.
@@ -97,6 +124,8 @@ void UroborosTick() {
         patched = area;
         Log("incinerator area %p: slot 0 filled during its update", area);
     }
+    if (area && At<DWORD>(area, 0) == kDeAreaVtable && PatchObject(area, kDeAreaVtable, PatchDeArea))
+        Log("Desperate Escape area %p: empty player slots filled during its update", area);
     BYTE* stage = Stage();
     DWORD scene = stage ? At<DWORD>(stage, kStageScene) : 0;
     bool s103 = area && area == patched && At<DWORD>(area, 0) >= 0x1928000;  // still on our vtable copy
@@ -117,6 +146,13 @@ void UroborosTick() {
         if (At<DWORD>(u, 0) == kMkonoVtable && PatchObject(u, kMkonoVtable, PatchMkono))
             Log("uroboros mkono %p: flame heat no longer scaled by the frame rate", u);
         DWORD vt = At<DWORD>(u, 0);
+        if ((vt == kLinIntelVtables[0] || vt == kLinIntelVtables[1]) && LostInNightmares() && !Partner() &&
+            !At<BYTE*>(u, kIntelTarget)) {
+            BYTE* unit = At<BYTE*>(u, kIntelUnit);
+            At<BYTE*>(u, kIntelTarget) = SoloPlayer();
+            if (unit) At<BYTE*>(unit, kUnitTarget) = SoloPlayer();
+            Log("enemy AI %p (vtable %08lX): no target, now the player", u, vt);
+        }
         if (vt != kIntelVtables[0] && vt != kIntelVtables[1]) return;
         int slot = At<int>(u, kTargetSlot);
         if (slot >= 0 && slot < 4 && At<BYTE*>(players, 0x24 + 4 * slot)) return;

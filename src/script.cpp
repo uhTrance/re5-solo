@@ -46,7 +46,9 @@
 // 12 -> camera on player 0, player 1 -> flag 13 -> camera on player 1) down player 0's branch, and a camera
 // aimed at the missing partner never ends: the script waited on EndCamera for good and the power never came
 // on. So level camera params (vtable 0x103E360, +9 target: 0/1 = that player's view) that name the partner
-// are pointed at the player too, by the same scan.
+// are pointed at the player too, by the same scan. Not in Lost in Nightmares: its scripts give each character a
+// camera of their own (s705's Event_WakeUp, CamId 15 on player 0, beside Event_WakeUp_Jill on player 1), and Chris's
+// pointed at Jill took over her view.
 //
 // Tracer (re5_solo_trace.txt next to the exe): every script function of the players' and the level's
 // script objects logs the first time it runs with each param. The 86 functions are all
@@ -305,7 +307,7 @@ void PatchLevelScripts() {
                     retargeted += TryRetarget(reinterpret_cast<BYTE*>(p + i));
                     continue;
                 }
-                if (p[i] == kCameraVtable && solo) {
+                if (p[i] == kCameraVtable && solo && !LostInNightmares()) {
                     cameras += TryRetargetCamera(reinterpret_cast<BYTE*>(p + i));
                     continue;
                 }

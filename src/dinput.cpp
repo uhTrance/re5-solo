@@ -18,6 +18,7 @@ namespace {
 
 constexpr DWORD kButtonsOffset = 48;         // DIJOYSTATE(2) rgbButtons
 int g_aimButton = 7;                         // config.ini RB (a DualSense: 7, R2)
+int g_actionButton = 2;                      // config.ini A (a DualSense: 2, Cross)
 DWORD g_axisOffset = 8;                      // config.ini RSTICK_VERT as a DIJOYSTATE offset (Z: lZ, 8)
 bool g_layoutRead;
 
@@ -30,6 +31,8 @@ void ReadLayout() {
     strcat_s(path, "\\CAPCOM\\RESIDENT EVIL 5\\config.ini");
     int button = GetPrivateProfileIntA("JOYPAD", "RB", -1, path);
     if (button >= 0 && button < 128) g_aimButton = button;
+    button = GetPrivateProfileIntA("JOYPAD", "A", -1, path);
+    if (button >= 0 && button < 128) g_actionButton = button;
     char axis[16] = {};
     GetPrivateProfileStringA("JOYPAD", "RSTICK_VERT", "Z", axis, sizeof axis, path);
     static const struct { const char* name; DWORD offset; } kAxes[] = {
@@ -45,7 +48,7 @@ constexpr DWORD kGetPropertySlot = 5;
 
 using GetProperty = HRESULT(WINAPI*)(void* self, REFGUID prop, void* header);
 
-volatile bool g_aimHeld;
+volatile bool g_aimHeld, g_actionHeld;
 LONG g_zMin = 0, g_zMax = 65535;
 bool g_rangeRead;
 
@@ -81,6 +84,7 @@ void DInputFilter(void* device, DWORD size, void* data) {
         BYTE& aim = bytes[kButtonsOffset + g_aimButton];
         LONG& z = *reinterpret_cast<LONG*>(bytes + g_axisOffset);
         g_aimHeld = (aim & 0x80) != 0;
+        if (g_actionButton < (size == 80 ? 32 : 128)) g_actionHeld = (bytes[kButtonsOffset + g_actionButton] & 0x80) != 0;
         if (Driving()) {
             LONG mid = (g_zMin + g_zMax) / 2, half = (g_zMax - g_zMin) / 2;
             aim = z < mid - half * 3 / 10 ? 0x80 : 0;  // stick past ~30% up
@@ -91,3 +95,6 @@ void DInputFilter(void* device, DWORD size, void* data) {
 
 // The real aim button, even while the game is shown the throttle instead.
 bool DInputAimHeld() { return g_aimHeld; }
+
+// The real action button (config.ini A), for piano.cpp's use-items.
+bool DInputActionHeld() { return g_actionHeld; }

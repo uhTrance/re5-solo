@@ -70,6 +70,14 @@ inline int SoloSlot() {
 
 inline int PartnerSlot() { return SoloSlot() ^ 1; }
 
+// Lost in Nightmares (DLC): its loading areas 616/617 and level areas 700/701, 705/706 (Desperate Escape: 618-620,
+// 702-704).
+inline bool LostInNightmares() {
+    BYTE* stage = Stage();
+    DWORD area = stage ? At<DWORD>(stage, 0x273D8) : 0;
+    return area == 616 || area == 617 || area == 700 || area == 701 || area == 705 || area == 706;
+}
+
 inline BYTE* PlayerAt(int slot) {
     auto list = *reinterpret_cast<BYTE**>(kPlayerList);
     return list ? At<BYTE*>(list, 0x24 + 4 * slot) : nullptr;

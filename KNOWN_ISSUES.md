@@ -34,7 +34,9 @@ that aren't listed here. Saves are backed up automatically to `re5_solo_saves` n
 
 ## Not tested
 
-- Both DLC episodes (Lost in Nightmares and Desperate Escape)
+- Lost in Nightmares (DLC) past area 705's cranks. It is always played as Jill. Not yet tested from a fresh start:
+  the sheet-music zone change (the piano was switched on by hand in testing) and the trap-room move. Area 705's
+  radio calls were skipped by hand (no audio device in testing), and one crank-enable flag (2) was set by hand
 - The take-all gap on Organize (see above)
 - The borderless option on monitors other than 4K, and with more than one monitor (the window fits the one it is on)
 - Linux and Proton, including the launcher's Wine setup and the boat's XInput hook

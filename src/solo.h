@@ -18,6 +18,7 @@ void BoatShutdown();
 void CollapseShutdown();
 void VoiceShutdown();
 void ZoneShutdown();
+void CrankShutdown();
 void RestoreHookedObjects();  // objhook.cpp
 
 // Watcher thread, every tick (solo.cpp).
@@ -33,6 +34,7 @@ bool CollapseDone();  // collapse.cpp: the 4-2 collapse's QTE is over
 void PulleyTick();
 void VoiceTick();
 void CrankTick();
+void CrankButtonTick();
 void BoxTick();
 void CrocTick();
 void LeverTick();
@@ -46,6 +48,7 @@ void WeskerTick();
 void DebugTick();
 void ScriptTick();
 void ZoneTick();
+void PianoTick();
 int ForceCheckpointZonesNear(float x, float z, float radius);
 void FilterTick();
 void BorderlessTick();
@@ -54,6 +57,7 @@ void UroborosTick();
 void BackupTick();
 void InventoryTick();
 void PauseTick();
+void EnemySnagTick();  // snag.cpp: the 120fps fix for enemies
 void PlayerTick();  // snag.cpp: every player's vtable copy, the 120fps fix (also in record mode)
 
 void DeathAfterMove(BYTE* player);  // death.cpp, after each player's move (snag.cpp's hook)
@@ -68,6 +72,7 @@ extern volatile DWORD g_boxGoTick;  // box.cpp: when a co-op box last went
 void XInputFilter(DWORD user, void* state);
 void DInputFilter(void* device, DWORD size, void* data);
 bool DInputAimHeld();
+bool DInputActionHeld();
 DWORD RawXInputGetState(DWORD user, void* state);
 
 // The game's message window (hint.cpp).

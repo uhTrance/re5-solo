@@ -247,6 +247,7 @@ void Tick() {
     BorderlessTick();  // the same
     BackupTick();  // also in record mode
     PlayerTick();  // likewise (the 120fps fix)
+    EnemySnagTick();
     if (RecordMode()) {  // vanilla co-op, only watch the jumps
         RecordTick();
         ScriptTick();
@@ -289,6 +290,7 @@ void Tick() {
     PulleyTick();
     VoiceTick();
     CrankTick();
+    CrankButtonTick();
     BoxTick();
     CrocTick();
     LeverTick();
@@ -303,6 +305,7 @@ void Tick() {
     DebugTick();
     ScriptTick();
     ZoneTick();
+    PianoTick();
 }
 
 HANDLE g_watch;

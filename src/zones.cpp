@@ -11,6 +11,11 @@
 //
 // Zone managers: [[0x11E8660] + 0xD4 + 4*i] (0x7EFA90), each with a zone count at +8 and list at +0x14.
 //
+// Lost in Nightmares also has zones for one character only, "any of 0x11" (Chris) beside "any of 0x12" (Jill).
+// Played as Jill (forced there, sheva.cpp), Chris's are unreachable: at the piano, Chris's look at the sheet music
+// (manager 6, zone 2, script Moon_Chris) sets flag 17, which the piano waits for before it can be played. There,
+// a zone that names only the partner names the player instead.
+//
 // The same root also holds 9 scenario zone lists (+0x24, 0x14 apart: count +0, array +0xC; walked by 0x7F09C0).
 // A scenario zone can run a level callback (cdecl fn(param), zone +0x14, its param +0xC; set at 0x7F0180, called
 // by 0xCC0790). 5-3's moving platform (0x74FA30, step at param +4) at step 4, after the lever enemy is dealt with,
@@ -54,6 +59,37 @@ int __cdecl PlatformStep(BYTE* param) {
     return result;
 }
 
+// Lost in Nightmares: scenario zones that start a level script when a player in them presses the action button
+// (def +8 type 6; the zone's boot list, cScenario at zone +0x340 (vtbl 0x10498F8, its zone at +0x28): +0x2C 0 =
+// start scripts, +0x34 count, +0x40 entries, each naming a script) never take Jill's press: the zone counts her
+// inside and her per-player button (zone +0x10 group, who 1, mask 2) is available, but its callback (0xCC2430)
+// never runs. Seen at the lock (Pick_chk, which sets flag 19 for the lockpick) and, by its flag never being set,
+// at the piano's sheet music (Moon_Chris, flag 17). There these zones fire as soon as the player walks in (type 3).
+// Type 5 does the same at the study's PC (PC_inputAndFileLook); of those only the ones without a prompt message
+// (def +0x20 0) change, so the "Check" spots (message 0x8B) stay on the button.
+constexpr DWORD kScenarioBoot = 0x340, kScenarioBootVtable = 0x10498F8;
+constexpr DWORD kTypePress = 6, kTypePressQuiet = 5, kTypeEnter = 3;
+
+void PressToEnterUnsafe(BYTE* zone) {
+    BYTE* def = At<BYTE*>(zone, 4);
+    if (!def) return;
+    DWORD type = At<DWORD>(def, 8);
+    if (type != kTypePress && !(type == kTypePressQuiet && At<DWORD>(def, 0x20) == 0)) return;
+    BYTE* boot = zone + kScenarioBoot;
+    if (At<DWORD>(boot, 0) != kScenarioBootVtable || At<BYTE*>(boot, 0x28) != zone || At<DWORD>(boot, 0x2C) != 0 ||
+        At<DWORD>(boot, 0x34) == 0)
+        return;
+    At<DWORD>(def, 8) = kTypeEnter;
+    Log("zones: script trigger %p (scene %lu) now starts when the player walks in, not on a button press", zone,
+        At<DWORD>(def, 0x14));
+}
+
+void PressToEnter(BYTE* zone) {
+    __try {
+        PressToEnterUnsafe(zone);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
 }  // namespace
 
 void ZoneTick() {
@@ -63,6 +99,7 @@ void ZoneTick() {
     auto root = *reinterpret_cast<BYTE**>(kAreaRoot);
     if (!root) return;
     DWORD mine = 1u << SoloSlot(), partner = 1u << PartnerSlot();
+    bool lin = LostInNightmares();
     int changed = 0;
     for (int i = 0; i < kManagers; ++i) {
         auto mgr = At<BYTE*>(root, 0xD4 + 4 * i);
@@ -72,7 +109,10 @@ void ZoneTick() {
         if (!zones || count > 512) continue;
         for (DWORD z = 0; z < count; ++z) {
             auto def = zones[z] ? At<BYTE*>(zones[z], 4) : nullptr;
-            if (!def || At<DWORD>(def, 0xC) != 1) continue;
+            if (!def) continue;
+            DWORD type = At<DWORD>(def, 0xC);
+            bool onlyPartner = type == 0 && lin && (At<DWORD>(def, 0x3C) & 0xF) == partner;
+            if (type != 1 && !onlyPartner) continue;
             auto state = At<BYTE*>(zones[z], 8);
             bool moved = false;
             DWORD* reqs[] = {&At<DWORD>(def, 0x3C), state ? &At<DWORD>(state, 0x18) : nullptr};
@@ -84,8 +124,9 @@ void ZoneTick() {
             changed += moved;
         }
     }
-    if (changed) Log("zones: %d both-players zone(s) now need only the player", changed);
-    ForEachScenarioZone(root, [](BYTE* zone) {
+    if (changed) Log("zones: %d both-players or partner-only zone(s) now need only the player", changed);
+    ForEachScenarioZone(root, [lin](BYTE* zone) {
+        if (lin) PressToEnter(zone);
         if (At<DWORD>(zone, kCallback) != kPlatformStep) return;
         At<DWORD>(zone, kCallback) = reinterpret_cast<DWORD>(&PlatformStep);
         Log("zones: 5-3 platform callback wrapped (the partner's slot is filled for its player check)");

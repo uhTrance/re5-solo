@@ -316,6 +316,34 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
   While stage flags `0x18000` are set in those scenes, slot 0 also holds the player (verified live: filling it
   un-froze the game and the flags cleared). Not the incinerator switch: its camera (`0xb35980`, `+0x17fc`) only
   runs when `+0x19a4 >= 0`, which it never is here.
+- **Desperate Escape area controller** (`uroboros.cpp`, vtbl `0xf57810`, update `+0x1c` = `0x7604d0`): checks
+  players 0 and 1 for a state (`0xb56600`, reads `+0x10e0`) without testing for an empty slot (`0x760970`), so
+  it crashed as a cutscene was due. For that update an empty slot 0 or 1 holds the player too. Completed as Jill.
+- **Lost in Nightmares is played as Jill** (`sheva.cpp`): only Jill opens its doors and plays its piano (`uOm0201_Piano`;
+  Chris's prompt only sends an AI Jill), and the game offers Jill only after a clear. In areas 616/617/700/701 the
+  character choice is set to Jill while no player exists. Chris-only zones there ("any of 0x11", e.g. the sheet
+  music that sets flag 17, which the piano waits for) are given to Jill (`zones.cpp`), and the piano's door
+  (`uOm0202_Door`, vtbl `0x100fdd0`) is kept open once it reaches the bottom by setting flag 150, the game's own
+  "done" state (`piano.cpp`); otherwise it rises again as soon as nobody is playing. The Centaur Emblem door's use
+  prompt (a scenario zone, manager 5 zone 1) is never created for Jill, so a held key item is used for her when she
+  stands at a `uOmUseItem` that needs it (its action, vtbl `0x1016b20` `+0x188`, run from its update `+0x160`).
+  Scenario zones that start a level script on an action-button press (def `+8` type 6) never take Jill's press,
+  though she counts as inside and her button is available (seen at the lock: `Pick_chk` sets flag 19, which the
+  lockpick `uOmf108_KeyPick` waits for). There they are made to fire on entry (type 3) instead (`zones.cpp`), and
+  so are type 5 ones without a prompt message (the study's PC); "Check" spots (message `0x8b`) are left alone.
+  The ceiling trap room catches whoever walks in; the caught player shoots the lock off (flag 13) and the other
+  pulls the lever by the gate (`uOm08bc`: flag 202, scene 14370, the safe switched on). Alone, the player is moved
+  through the gate once the lock is off (`piano.cpp`), pulls the lever, and goes back for the safe.
+  Held key items go in only on the player's own press (A on an XInput pad, `config.ini` `[JOYPAD] A` on a
+  DirectInput pad, or F). The hall crank (`uOm021b`, max 150) locks only once fully wound (`crank.cpp`). Areas
+  705/706 count as Lost in Nightmares too. There, camera params aimed at Chris are not pointed at Jill
+  (`script.cpp`): each character has a wake-up camera of their own, and Chris's took over hers. In 705 the
+  coloured cranks' grab button (crank action `+0x10f8` -> `+0x1c`, condition `0xab18f0`) only lets a human turn
+  one when their partner exists and is human, so for a free crank the mod lets the player turn it alone. The
+  enemies there (`uEmIntel70` `0xf977b8`, `uEmIntel65` `0xf97348`) only ever target player 0, so with no target they
+  get the player (AI `+0x2c`, enemy `+0x1ba4`; `uroboros.cpp`). With no audio device, radio calls wait for
+  ever on their first line: each subtitle waits for its voice line to finish playing. That's a setup issue, not a
+  mod bug.
 
 - **Uroboros Mkono** (5-2, `uEm41` vtbl `0xf7d160`, AI `uEmIntel41` `0xf960f0`): its AI shares `uEmIntel40`'s
   target pick, so it gets the same target-slot fix. Part hits only do full damage while it is open
@@ -419,6 +447,11 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
   original runs; the game's collision still decides where the player ends up. Never acts at 60 fps or below.
   Verified: freed a live snag at (-2003, 255, -1876) on the first try. Works in vanilla co-op too, and as a
   standalone mod (`re5-120fps-fix`).
+- Enemies snag the same way: their ground step (`+0xd8`, `0x9de2e0`) uses the same `+0x1060`/`+0x1050`. Lost in
+  Nightmares' axe man (`uEm27`, area 705) walked on the spot at 120 fps on the way to his jump-up point and
+  managed it at 30. Patched class copies are limited, so an enemy class gets the fix only once the watcher sees one
+  of its units held in place while moving. Its step starts at the 60 fps length, and if still held ten frames
+  later it gets the 30 fps one (the axe man needed it). Verified: he jumps up to the ledge again.
 - `snag.cpp` also owns the players' vtable copies (HookObject on `+0x1c`, every slot): `death.cpp` runs after
   the move through it.
 
