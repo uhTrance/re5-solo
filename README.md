@@ -6,9 +6,8 @@ cutscenes.
 
 ## Streaming RE5 Solo?
 
-The mod is free, and you're welcome to stream or record it. If you do, please share my London Marathon fundraiser
-with your viewers: **[justgiving.com/page/uhtrance](https://www.justgiving.com/page/uhtrance)**. A link in your
-stream description, chat or panels would mean a lot. Thank you!
+If you stream the mod, please consider donating to my London Marathon fundraiser:
+**[justgiving.com/page/uhtrance](https://www.justgiving.com/page/uhtrance)**. Thank you!
 
 This is still in testing: see [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for the bugs and gaps so far. The rest of this file
 is technical notes. [KNOWLEDGE.md](KNOWLEDGE.md) is the guide for other modders: how the engine works, the methods
