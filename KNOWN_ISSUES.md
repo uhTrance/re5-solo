@@ -39,8 +39,7 @@ that aren't listed here. Saves are backed up automatically to `re5_solo_saves` n
 - Lost in Nightmares (DLC) has been played through once as Jill, but parts were reached by checkpoint or by
   skipping areas, not in one run: the trap-room move and the one-press piano (flag 17 set on approach; the piano
   worked in two presses) haven't been seen from a fresh start. Area 705's radio calls were skipped by hand (no
-  audio device in testing), and one crank-enable flag (2) was set by hand. The final fight's checkpoint was seen
-  saving when fired by hand; the automatic version hasn't been seen yet.
+  audio device in testing), and one crank-enable flag (2) was set by hand.
 - The take-all gap on Organize (see above)
 - The borderless option on monitors other than 4K, and with more than one monitor (the window fits the one it is on)
 - Linux and Proton, including the launcher's Wine setup and the boat's XInput hook
