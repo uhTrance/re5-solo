@@ -4,6 +4,12 @@ A solo Resident Evil 5 story mode. The partner (Sheva by default) is never spawn
 reworked so one player can do it. There is no ghost partner. The removed character still appears in in-engine
 cutscenes.
 
+## Streaming RE5 Solo?
+
+The mod is free, and you're welcome to stream or record it. If you do, please share my London Marathon fundraiser
+with your viewers: **[justgiving.com/page/uhtrance](https://www.justgiving.com/page/uhtrance)**. A link in your
+stream description, chat or panels would mean a lot. Thank you!
+
 This is still in testing: see [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for the bugs and gaps so far. The rest of this file
 is technical notes. [KNOWLEDGE.md](KNOWLEDGE.md) is the guide for other modders: how the engine works, the methods
 and the co-op-to-solo bug patterns, with worked case studies.
