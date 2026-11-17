@@ -390,15 +390,16 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
   nothing) (`ndesu.cpp`): prompt press `+0x230` (`0x8e08b0`) marks `+0x1bb4` bit `0x40 << slot` and acts only
   with both; `+0x234` (`0x8e09b0`) runs the players' side (type 0 crouch is player 0 only; types 1/2 need
   both). The mod marks the partner's bit and does the solo player's half.
-- **Ndesu tuning** (`enemyhp.cpp`, `NdesuEaseTick`): his health, gauges and bulbs are at their default values. His
-  thrown boulder (`uWp78`) has 2600 health instead of 5200. The attack stop values at `+0x1f54` for the kick, slam,
-  pole swing and tackle (1500, 2600, 1200, 6000) are 10% lower, caught at their exact loaded values. The older
-  With the launcher's "Ndesu's main bulb at half health" option (`re5_solo_ndesuhalf.txt`, `EnemyHpTick`)
-  the main bulb's health (`+0x1f50`) is capped at 13000 (armed at 26000); his body, other bulbs and stagger
-  gauges stay at their defaults. An attack's stop is checked only
-  on the hit that takes `+0x1f54` from above 0 to 0 or below, and only while the stop window (`+0x448` bit
-  `0x2000`) is open; a stop used up before the window opened let the attack land, so until it opens the value is
-  held at 1.
+- **Ndesu tuning** (`enemyhp.cpp`, `NdesuEaseTick`): his health (15000), main bulb (26000), side bulbs (8000)
+  and stagger gauges (8000) are at their default values, and so are his attacks' stop values at `+0x1f54` (kick
+  1500, slam 2600, pole swing 1200, tackle 6000; a 10% cut, from 2026-10-31, was dropped on 2026-11-08). His
+  thrown boulder (`uWp78`) has 2600 health instead of 5200. With the launcher's "Ndesu's main bulb at half
+  health" option (`re5_solo_ndesuhalf.txt`, `EnemyHpTick`) the main bulb's health (`+0x1f50`) is capped at
+  13000 (armed at 26000; it keeps its damage between exposures); his body, other bulbs and stagger gauges stay
+  at their defaults. How a stop works (the damage handler, `0x8e1ae6`): it is checked only on the hit that takes
+  `+0x1f54` from above 0 to 0 or below, and only while the stop window (`+0x448` bit `0x2000`) is open; that hit
+  costs him 5000 and he flinches. A stop used up before the window opens is never checked again, so the attack
+  lands (logged: the slam crossed 0 at 2.22 s and hit; every crossing from 2.25 s stopped it).
 - **Ndesu hit cooldown at high frame rates** (`ndesu.cpp`): an applied hit (`0x9e0840`) arms a per-part cooldown
   from the hit's `+0x34` (0.1 s for the jeep turret) in `+0x1e10[part]`, which becomes `+0x1dfc[part]` and ticks
   down by frame time; while it is above 0 the part ignores hits (`0x9e0700`). The turret fires every 0.104 s, so
