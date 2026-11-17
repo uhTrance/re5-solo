@@ -34,6 +34,7 @@ constexpr DWORD kUseItemVtable = 0x1016B20, kUpdateSlot = 0x160 / 4, kUseAction 
 constexpr DWORD kUsed = 0x1970, kNeedCount = 0x1980, kNeeds = 0x198C;  // needs: entries, +0xA0 type (0 = key item), +4 id
 constexpr DWORD kKeyItems = 0x232E8;  // on Stage(): 8 held key item ids, one byte each
 constexpr float kReach = 150.0f;
+constexpr DWORD kPianoVtable = 0x100FAD8, kChrisLine = 0x1980, kPlay = 0x1984;
 
 constexpr DWORD kLockShot = 13, kRescued = 202;
 constexpr float kRoomX = -3365.0f, kRoomZ = 3225.0f, kRoomRadius = 400.0f, kOutsideX = -3412.0f, kOutsideZ = 2900.0f;
@@ -121,6 +122,23 @@ void __fastcall UseItemUpdate(BYTE* self, void*) {
 
 void PatchUseItem(DWORD* copy) { copy[kUpdateSlot] = reinterpret_cast<DWORD>(&UseItemUpdate); }
 
+// The piano (uOm0201_Piano, update +0x160 = 0xB2D7D0) has two prompts for a human Jill once flag 17 is set:
+// +0x1980 (callback 0xB2D9F0: Chris's "never took piano lessons" line) and +0x1984 (callback 0xB2DA50: she plays).
+// Its update switches both on every frame (button +0x8 and +0x34), and the press goes to the first, so alone she
+// only ever got his line (recorded 2026-11-17: +0x1980's pressed bytes +0xB/+0xC flicked, +0x1984's never did).
+// After its update, his prompt is switched off while hers is on.
+void __fastcall PianoUpdate(BYTE* self, void*) {
+    ThisCall(reinterpret_cast<DWORD*>(kPianoVtable)[kUpdateSlot], self);
+    if (Partner() || !LostInNightmares()) return;
+    BYTE* chris = At<BYTE*>(self, kChrisLine);
+    BYTE* play = At<BYTE*>(self, kPlay);
+    if (!chris || !play || !At<BYTE>(play, 8)) return;
+    At<BYTE>(chris, 8) = 0;
+    At<BYTE>(chris, 0x34) = 0;
+}
+
+void PatchPiano(DWORD* copy) { copy[kUpdateSlot] = reinterpret_cast<DWORD>(&PianoUpdate); }
+
 }  // namespace
 
 bool LinActionHeld() { return ActionHeld(); }
@@ -138,6 +156,8 @@ void PianoTick() {
     ForEachUnit([&](BYTE* u) {
         if (At<DWORD>(u, 0) == kUseItemVtable && PatchObject(u, kUseItemVtable, PatchUseItem))
             Log("use item %p: patched (Lost in Nightmares)", u);
+        if (At<DWORD>(u, 0) == kPianoVtable && PatchObject(u, kPianoVtable, PatchPiano))
+            Log("piano %p: patched, Chris's line is off while her play prompt is on", u);
         if (At<DWORD>(u, 0) != kDoorVtable || (flags & bit)) return;
         float y = At<float>(u, kPosY), bottom = At<float>(u, kBottom);
         if (bottom == 0.0f || y > bottom + 1.0f) return;

@@ -507,6 +507,13 @@ flag 17. With the flip, the press hit Chris's look every time. Fix: once flag 17
 from the flip. For one press: flag 17 is set as Jill comes within 3 m of his look's zone (that's all his look
 does besides the line).
 
+**Symptom 3:** with flag 17 set and his look off, the press still gave his line. The piano object
+(`uOm0201_Piano`, update `+0x160` = `0xb2d7d0`) has its own buttons at `+0x1974..+0x1990`. For a human Jill
+(her `+0x2da8` 0, not AI) with flag 17 set, its update switches on `+0x1980` (callback `0xb2d9f0`: his line) and
+`+0x1984` (callback `0xb2da50`: start her piano action) every frame, and the press goes to the first. A
+recorder over both buttons showed only `+0x1980`'s pressed bytes (`+0xb`, `+0xc`) flicking. Fix: a vtable copy
+whose update runs the original, then switches `+0x1980` off (`+0x8`, `+0x34`) while `+0x1984` is on.
+
 **Lesson:** two zones sharing one spot means one press, two scripts. Read which script each zone boots
 (`[[zone+0x340+0x40]+4]+8`), and guard that read: zones without a real boot hold garbage there.
 

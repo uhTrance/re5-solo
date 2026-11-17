@@ -349,7 +349,9 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
   pad's A), they are made "fire with a player inside" (type 3), so the one she stands in fires on her press
   (`zones.cpp`); so are type 5 ones without a prompt message (the study's PC). The piano's spot also holds Chris's
   look (`Moon_Chris`, his "never took piano lessons" line, which sets flag 17): flag 17 is set as she comes within
-  3 m of it and his look is then skipped, so one press plays the piano.
+  3 m of it and his look is then skipped. The piano object itself also has his line as a prompt (`+0x1980`), on
+  beside her play prompt (`+0x1984`) and taking the press first; it is switched off while hers is on
+  (`piano.cpp`), so one press plays the piano.
   The ceiling trap room catches whoever walks in; the caught player shoots the lock off (flag 13) and the other
   pulls the lever by the gate (`uOm08bc`: flag 202, scene 14370, the safe switched on). Alone, the player is moved
   through the gate once the lock is off (`piano.cpp`), pulls the lever, and goes back for the safe.

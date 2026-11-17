@@ -1,6 +1,6 @@
 # Known issues
 
-Current as of 1.1.0 (2026-11-09). The mod has not had a full playthrough of every chapter, so expect softlocks
+Current as of 1.1.1 (2026-11-17). The mod has not had a full playthrough of every chapter, so expect softlocks
 that aren't listed here. Saves are backed up automatically to `re5_solo_saves` next to the game's exe.
 
 ## Open bugs
@@ -37,8 +37,8 @@ that aren't listed here. Saves are backed up automatically to `re5_solo_saves` n
 ## Not tested
 
 - Lost in Nightmares (DLC) has been played through once as Jill, but parts were reached by checkpoint or by
-  skipping areas, not in one run: the trap-room move and the one-press piano (flag 17 set on approach; the piano
-  worked in two presses) haven't been seen from a fresh start. Area 705's radio calls were skipped by hand (no
+  skipping areas, not in one run: the trap-room move and the one-press piano (checked 2026-11-17 after a jump to
+  the piano, not from a fresh start) haven't been seen in one run. Area 705's radio calls were skipped by hand (no
   audio device in testing), and one crank-enable flag (2) was set by hand.
 - The take-all gap on Organize (see above)
 - The borderless option on monitors other than 4K, and with more than one monitor (the window fits the one it is on)
