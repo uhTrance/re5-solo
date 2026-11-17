@@ -399,7 +399,8 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
   at their defaults. How a stop works (the damage handler, `0x8e1ae6`): it is checked only on the hit that takes
   `+0x1f54` from above 0 to 0 or below, and only while the stop window (`+0x448` bit `0x2000`) is open; that hit
   costs him 5000 and he flinches. A stop used up before the window opens is never checked again, so the attack
-  lands (logged: the slam crossed 0 at 2.22 s and hit; every crossing from 2.25 s stopped it). Emptying his
+  lands (logged: the slam crossed 0 at 2.22 s and hit; every crossing from 2.25 s stopped it). The tackle's 6000 is still
+  stoppable: its long charge-up leaves time to empty it (seen in play). Emptying his
   body health makes him stagger backwards and opens the side bulbs; if they are already open he only staggers
   (seen in play).
 - **Ndesu hit cooldown at high frame rates** (`ndesu.cpp`): an applied hit (`0x9e0840`) arms a per-part cooldown
