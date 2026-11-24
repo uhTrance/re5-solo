@@ -403,12 +403,20 @@ quit on the knife's effect (`effect\adh\wp\wp_knif.adh`), so all of `uWp01.arc` 
   it). The tackle's 6000 is still stoppable: its long charge-up leaves time to empty it (seen in play).
   His body bar is the float at Ndesu's own `+0x1f50` (not the bulbs' int at the same offset); every hit takes
   about 92-115 off it. It is armed at 20000. When it empties he staggers backwards (`cEm45ActDamage`, flags
-  `0x800`) and goes into `cEm45ActPlagaWait`: two side bulbs open and the bar is re-armed at 45000 (if they are
-  already open he only staggers, seen in play). Killing both side bulbs opens the main bulb, and the bar is
-  re-armed at 35000. After the main bulb closes the side bulbs are back at 8000 (no retry in between). His
-  `+0x1364` health (15000) never moves, and the four stagger gauges (`+0x1c10`, 12 bytes each, every hit taking a
-  different amount from each) are not what staggers him: two reached 0 with no reaction. What they do is not
-  known. Logged at 120 fps on 2026-11-24, one round of each phase; later rounds' re-arm values are not yet logged.
+  `0x800`) and goes into `cEm45ActPlagaWait`: side bulbs open and the bar is re-armed (if they are already open he
+  only staggers, seen in play). Killing every open side bulb opens the main bulb, and the bar is re-armed at
+  35000; it is not re-armed when the main bulb closes, so the next stagger comes when that 35000 runs out. After
+  the main bulb closes the side bulbs are back at 8000. The rounds differ:
+
+  | Round | Side bulbs open | Bar at the stagger | Bar when the main bulb opens |
+  |---|---|---|---|
+  | 1 | 2 (bulbs 0 and 2) | 45000 | 35000 |
+  | 2 | all 4 | 35000 | 35000 |
+
+  In round 2 the four stagger gauges also refilled to 8000 at the stagger. His `+0x1364` health (15000) never
+  moves, and the gauges (`+0x1c10`, 12 bytes each, every hit taking a different amount from each) are not what
+  staggers him: two reached 0 with no reaction. What they do is not known. Logged at 120 fps on 2026-11-24, one
+  fight with no retry; a third round was not logged (the main bulb, at 6450, dies in it).
 - **Ndesu hit cooldown at high frame rates** (`ndesu.cpp`): an applied hit (`0x9e0840`) arms a per-part cooldown
   from the hit's `+0x34` (0.1 s for the jeep turret) in `+0x1e10[part]`, which becomes `+0x1dfc[part]` and ticks
   down by frame time; while it is above 0 the part ignores hits (`0x9e0700`). The turret fires every 0.104 s, so
